@@ -8,7 +8,7 @@
   {{template "notice" (dict "Kind" "danger" "Title" "Could not read metrics" "Body" .Err)}}
 {{end}}
 
-<div class="fixed-grid has-3-cols">
+<div class="fixed-grid has-2-cols-mobile has-3-cols-tablet">
   <div class="grid">
     {{range .Stats}}{{template "stat-card" .}}{{end}}
   </div>

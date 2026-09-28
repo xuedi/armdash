@@ -286,3 +286,27 @@ func TestTLSFilesMustBeSetTogether(t *testing.T) {
 		}
 	}
 }
+
+func TestThemeSwitchIsOnSettingsNotNavbar(t *testing.T) {
+	s := newTestServer(t)
+	r := httptest.NewRequest(http.MethodGet, "/settings", nil)
+	r.AddCookie(&http.Cookie{Name: themeCookie, Value: "dark"})
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, r)
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="button is-link is-selected"
+        data-armdash-theme="dark"`) {
+		t.Errorf("settings does not show dark as the chosen theme")
+	}
+	if n := strings.Count(body, "data-armdash-theme="); n != 3 {
+		t.Errorf("settings has %d theme buttons, want 3", n)
+	}
+
+	nav, _, _ := strings.Cut(body, "</nav>")
+	if strings.Contains(nav, "data-armdash-theme=") {
+		t.Error("the navbar still carries the theme switch")
+	}
+	if !strings.Contains(nav, `class="navbar-burger"`) {
+		t.Error("the navbar has no burger for small screens")
+	}
+}

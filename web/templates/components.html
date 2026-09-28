@@ -13,8 +13,8 @@
 */}}
 {{define "page-top"}}
 <div class="box">
-  <div class="level is-mobile">
-    <div class="level-left">
+  <div class="level is-mobile is-flex-wrap-wrap is-row-gap-1">
+    <div class="level-left is-flex-direction-row is-flex-wrap-wrap is-row-gap-1">
       {{if .Title}}<div class="level-item"><span class="title is-5 mb-0">{{.Title}}</span></div>{{end}}
       {{range .Info}}
         <div class="level-item has-text-grey-light">|</div>
@@ -75,8 +75,10 @@
   // uPlot is built for that. Chart.js would crawl.
   const armdashURL = {{.URL}};
   const armdashEl = document.getElementById('armdash-chart');
-  const armdashHeight = 340;
+  // Shorter on a phone, so the chart and its legend fit on one screen.
+  const armdashHeight = window.matchMedia('(max-width: 768px)').matches ? 240 : 340;
   let armdashChart = null;
+  let armdashShape = '';
   let armdashWidth = 0;
   let armdashData = null;
 
@@ -135,8 +137,18 @@
     return { value: (u, v) => v == null ? '' : fmt(new Date((v - bucket / 2) * 1000)) };
   }
 
-  function armdashDraw(d) {
+  // A refresh with the same shape only swaps the data, so the legend and the
+  // cursor do not flicker every time the chart reloads. Anything else, a new
+  // range or a theme change, builds the chart afresh.
+  function armdashDraw(d, rebuild) {
     armdashData = d;
+    const shape = [d.bucket || 0, d.time.length <= 60, ...d.series.map(s => s.name)].join('|');
+    if (armdashChart && !rebuild && shape === armdashShape) {
+      const b = d.bucket || 0;
+      armdashChart.setData([b ? d.time.map(t => t + b / 2) : d.time, ...d.series.map(s => s.data)]);
+      return;
+    }
+    armdashShape = shape;
     const theme = armdashTheme();
     const axis = {
       stroke: theme.axis,
@@ -154,7 +166,10 @@
         // From the data rather than uPlot's own min and max: with a single
         // bar, uPlot has already widened those to about three years.
         x: bucket
-          ? { time: true, range: () => [xs[0] - bucket / 2, xs[xs.length - 1] + bucket / 2] }
+          ? { time: true, range: u => {
+              const x = u.data[0];
+              return [x[0] - bucket / 2, x[x.length - 1] + bucket / 2];
+            } }
           : { time: true },
         // Percentages start at zero, where the distance from zero is the
         // point. Temperatures do not: a whole board sits within a few degrees
@@ -178,18 +193,31 @@
     }, data, armdashEl);
   }
 
-  function armdashLoad() {
-    const secs = document.getElementById('armdash-range').value;
+  let armdashTimer = null;
+  let armdashDue = false;
+  let armdashSeq = 0;
+
+  // background is a timed refresh: no "loading" flash, and the chart is kept
+  // as drawn rather than rebuilt.
+  function armdashLoad(background) {
+    const range = document.getElementById('armdash-range');
+    const secs = range.value;
     const status = document.getElementById('armdash-status');
-    status.className = 'tag is-light'; status.textContent = 'loading';
+    if (background !== true) {
+      status.className = 'tag is-light'; status.textContent = 'loading';
+    }
+    armdashSchedule(Number(range.selectedOptions[0].dataset.refresh) || 60);
+    // A slow answer for the range just left must not paint over the new one.
+    const seq = ++armdashSeq;
     fetch(armdashURL + '&window=' + secs)
       .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(new Error(t))))
       .then(d => {
+        if (seq !== armdashSeq) return;
         if (!d.time || d.time.length === 0) {
           status.className = 'tag is-warning'; status.textContent = 'no data';
           return;
         }
-        armdashDraw(d);
+        armdashDraw(d, background !== true);
         const n = d.time.length;
         const what = (d.bucket ? ' bar' : ' point') + (n === 1 ? '' : 's');
         status.className = 'tag is-success is-light';
@@ -198,10 +226,24 @@
           : n + what;
       })
       .catch(e => {
+        if (seq !== armdashSeq) return;
         status.className = 'tag is-danger';
         status.textContent = String(e.message || e).slice(0, 120);
       });
   }
+
+  // A hidden tab does not poll; it catches up once when it is shown again.
+  function armdashSchedule(secs) {
+    clearTimeout(armdashTimer);
+    armdashDue = false;
+    armdashTimer = setTimeout(() => {
+      if (document.hidden) { armdashDue = true; return; }
+      armdashLoad(true);
+    }, secs * 1000);
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && armdashDue) armdashLoad(true);
+  });
 
   // uPlot sizes its canvas once, so the chart has to be told when its column
   // changes width.
@@ -229,9 +271,9 @@
   // so that listener has nothing to repaint for.
   const armdashScheme = window.matchMedia('(prefers-color-scheme: dark)');
   armdashScheme.addEventListener('change', () => {
-    if (armdashData && !document.documentElement.dataset.theme) armdashDraw(armdashData);
+    if (armdashData && !document.documentElement.dataset.theme) armdashDraw(armdashData, true);
   });
-  window.addEventListener('armdash:theme', () => { if (armdashData) armdashDraw(armdashData); });
+  window.addEventListener('armdash:theme', () => { if (armdashData) armdashDraw(armdashData, true); });
   if (typeof ResizeObserver !== 'undefined') {
     const armdashObserver = new ResizeObserver(armdashResize);
     armdashObserver.observe(armdashEl);

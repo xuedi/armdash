@@ -398,6 +398,7 @@ type settingsData struct {
 	Systems []settingsSystem
 	Links   []settingsLink
 	Files   []string
+	Theme   string
 }
 
 const redacted = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
@@ -504,8 +505,10 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if s.requireLogin(w, r) {
 		return
 	}
+	sd := s.settingsData()
+	sd.Theme = theme(r)
 	var body bytes.Buffer
-	if err := s.tmpl.ExecuteTemplate(&body, "settings", s.settingsData()); err != nil {
+	if err := s.tmpl.ExecuteTemplate(&body, "settings", sd); err != nil {
 		s.log.Error("settings render failed", "err", err)
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return

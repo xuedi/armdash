@@ -73,10 +73,11 @@ its start.
 Bulma 1.0 exposes CSS custom properties (`--bulma-border`, `--bulma-text-weak`, and so on). The
 floor plan SVG uses those rather than fixed colours, so it follows the theme instead of fighting it.
 
-By default the page follows the browser. A navbar toggle overrides that with Bulma's own
+By default the page follows the browser. The Auto, Light and Dark switch at the top of the
+Settings page overrides that with Bulma's own
 `data-theme` attribute on the `html` element: Bulma defines its whole palette a second time under
 `[data-theme]`, after the `prefers-color-scheme` block and at equal specificity, so the attribute
-wins in both directions. There is no custom CSS behind the toggle at all.
+wins in both directions. There is no custom CSS behind the switch at all.
 
 The choice is remembered in a **cookie**, not in `localStorage`, because the page is server
 rendered. The server reads the cookie and writes the attribute into the HTML it serves, so the
@@ -87,7 +88,7 @@ up in an attribute.
 
 Two things follow the theme by a different route. The charts paint a canvas, which inherits
 nothing, so they read Bulma's variables off the computed root style and repaint on a `armdash:theme`
-event that the toggle fires. And while an override is set, the `prefers-color-scheme` listener
+event that the switch fires. And while an override is set, the `prefers-color-scheme` listener
 stops repainting, because the browser preference is no longer what is on screen.
 
 ## Page shape
@@ -108,6 +109,16 @@ as a `system.PageTop`, not in the template, so a page cannot drift into a bespok
 Action order, left to right: state-changing buttons first, filters next, navigation last. On a
 chart page that means the sample count, then the range selector.
 
+### On a phone
+
+Below Bulma's desktop breakpoint the navbar collapses behind a `navbar-burger`, whose only script
+toggles `is-active` on the burger and the menu. The sidebar is hidden there (`is-hidden-touch`), and
+the active system's pages are listed under its entry in the burger menu instead, so a page opens
+with its content rather than a menu. The rest is Bulma's responsive helpers: the infobar wraps its
+items rather than stacking one per line, wide tables sit in a `table-container`, the stat grid drops
+to two columns, the settings table moves each label above its value, and charts are drawn shorter.
+Nothing on a page scrolls sideways at 375px.
+
 A link page is the one exception to this shape: the navbar, then an iframe spanning the rest of the
 window, with no section, container or sidebar. See [links.md](links.md).
 
@@ -117,9 +128,10 @@ Ten lines, all of them Bulma's own custom properties (`--bulma-family-primary`, 
 `--bulma-body-background-color`). There is not a single selector override, so a Bulma upgrade cannot
 silently break the layout.
 
-Two elements carry an inline style because no Bulma class does what they need. The link page's
+A few elements carry an inline style because no Bulma class does what they need. The link page's
 iframe takes its height, the viewport minus `--bulma-navbar-height`. The query box under a chart
-takes `overflow-wrap: anywhere`, so an unbroken selector wraps instead of widening the page. Each is
+and the variable names on the settings page take `overflow-wrap: anywhere`, so an unbroken selector
+or name wraps instead of widening the page. Each is
 one element with one inline style, not a rule.
 
 Spacing comes from `section`, `container` and `columns`; emphasis comes from helper classes
@@ -148,10 +160,26 @@ Both go through one `armdashResize()` with a **width guard**. Resizing the canva
 observer, and without the guard the two feed each other into a loop.
 
 
+## Chart refresh
+
+An open chart reloads itself on a pace set by its range: every 30 seconds for the last hour, then
+one, two, ten and thirty minutes, up to an hour for the last year. The intervals live next to the
+ranges in Go and reach the page as a `data-refresh` attribute on each option of the range selector,
+so there is one table, not a second copy in the script.
+
+A timed reload swaps the data into the existing chart rather than building a new one, so the legend
+and cursor stay put and the status tag does not flash "loading". It rebuilds only when the shape
+changes: other series, a bucket rule, or the switch from markers to plain lines. A failed reload
+keeps the last drawing and shows the error in the tag. Changing the range restarts the timer, and a
+sequence number drops a late answer for the range just left.
+
+A hidden tab does not poll. When the timer fires in the background it only notes that a reload is
+due, and the page catches up once, as soon as it is shown again.
+
 ## Light and dark
 
 Bulma 1.0 ships both palettes and switches between them on `prefers-color-scheme`, so the dashboard
-follows the browser with no toggle and no preference to store. Everything the framework draws,
+follows the browser unless the Settings switch says otherwise. Everything the framework draws,
 boxes, tables, the menu, tags, comes along for free.
 
 That freedom has one condition: **never give a colour a literal value.** A hardcoded light shade sits

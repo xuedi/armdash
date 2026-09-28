@@ -22,7 +22,7 @@ without checksums:
 armdash -version
 ```
 
-and the navbar sidebar, under the Build label.
+and the navbar sidebar, under the Build label (on a phone, in the burger menu).
 
 ## Releases
 

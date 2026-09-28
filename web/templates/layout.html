@@ -36,21 +36,26 @@
       <a class="navbar-item has-text-weight-bold" href="/">
         <img src="/static/favicon.svg" alt="" width="28" height="28" class="mr-2">armdash
       </a>
+      <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
+         aria-controls="armdash-menu" onclick="armdashBurger(this)">
+        <span aria-hidden="true"></span><span aria-hidden="true"></span>
+        <span aria-hidden="true"></span><span aria-hidden="true"></span>
+      </a>
     </div>
-    <div class="navbar-menu is-active">
+    <div id="armdash-menu" class="navbar-menu">
       <div class="navbar-start">
+        {{$nav := .Nav}}
         {{range .Top}}
           <a class="navbar-item {{if .Active}}has-text-weight-semibold has-text-link{{end}}" href="{{.Href}}"{{if .NewTab}} target="_blank" rel="noopener"{{end}}>{{.Title}}</a>
+          {{/* On a phone the sidebar is hidden, so the active system's pages
+               sit under its entry in the burger menu instead. */}}
+          {{if .Active}}{{range $nav}}
+          <a class="navbar-item pl-5 is-hidden-desktop{{if .Active}} has-text-weight-semibold has-text-link{{end}}" href="{{.Href}}">{{.Title}}</a>
+          {{end}}{{end}}
         {{end}}
       </div>
       <div class="navbar-end">
-        <div class="navbar-item">
-          <div class="buttons has-addons are-small">
-            {{template "theme-button" (dict "Value" "" "Label" "Auto" "Theme" .Theme)}}
-            {{template "theme-button" (dict "Value" "light" "Label" "Light" "Theme" .Theme)}}
-            {{template "theme-button" (dict "Value" "dark" "Label" "Dark" "Theme" .Theme)}}
-          </div>
-        </div>
+        {{if .Nav}}<div class="navbar-item is-hidden-desktop is-size-7 has-text-grey">armdash v{{.Version}}</div>{{end}}
         <a class="navbar-item {{if .SettingsActive}}has-text-weight-semibold has-text-link{{end}}" href="/settings">Settings</a>
         {{if .LoggedIn}}
         <form class="navbar-item" method="post" action="/logout">
@@ -99,7 +104,7 @@
   <div class="container">
     <div class="columns">
       {{if .Nav}}
-      <div class="column is-2">
+      <div class="column is-2 is-hidden-touch">
         <aside class="menu">
           <p class="menu-label">{{.ActiveTitle}}</p>
           <ul class="menu-list">
@@ -124,6 +129,16 @@
 {{end}}
 
 <script>
+  // Bulma ships the burger's look but not its behaviour; toggling is-active
+  // on both halves is the whole of it.
+  function armdashBurger(b) {
+    const menu = document.getElementById(b.getAttribute('aria-controls'));
+    const open = !menu.classList.contains('is-active');
+    b.classList.toggle('is-active', open);
+    menu.classList.toggle('is-active', open);
+    b.setAttribute('aria-expanded', String(open));
+  }
+
   // Bulma defines its whole palette twice, under prefers-color-scheme and
   // again under [data-theme], and its attribute rules come last in the
   // stylesheet. Setting the attribute is therefore the entire override; there
@@ -153,8 +168,3 @@
 </body>
 </html>{{end}}
 
-{{/* theme-button expects: .Value ("", "light", "dark") .Label .Theme (current) */}}
-{{define "theme-button"}}
-<button type="button" class="button{{if eq .Value .Theme}} is-link is-selected{{end}}"
-        data-armdash-theme="{{.Value}}" onclick="armdashSetTheme('{{.Value}}')">{{.Label}}</button>
-{{end}}

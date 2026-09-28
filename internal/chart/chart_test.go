@@ -231,10 +231,18 @@ func TestPageOpensOnTheChartsWindow(t *testing.T) {
 	if p.URL != "/s/x/api/range?metric=energy" {
 		t.Errorf("data URL = %q", p.URL)
 	}
-	if sel := string(p.Top.Actions[1]); !strings.Contains(sel, `value="86400" selected`) {
+	if sel := string(p.Top.Actions[1]); !strings.Contains(sel, `value="86400" data-refresh="120" selected`) {
 		t.Errorf("selector does not open on the last day: %s", sel)
 	}
-	if sel := string(s.Page(Chart{Slug: "cpu"}, false).Top.Actions[1]); !strings.Contains(sel, `value="3600" selected`) {
+	if sel := string(s.Page(Chart{Slug: "cpu"}, false).Top.Actions[1]); !strings.Contains(sel, `value="3600" data-refresh="30" selected`) {
 		t.Errorf("selector does not open on the last hour: %s", sel)
+	}
+}
+
+func TestEveryWindowRefreshes(t *testing.T) {
+	for _, w := range Windows {
+		if w.Refresh <= 0 || w.Refresh > w.Span/10 {
+			t.Errorf("%s: refresh %v does not suit a span of %v", w.Label, w.Refresh, w.Span)
+		}
 	}
 }

@@ -2,7 +2,7 @@
 <h1 class="title is-4">Settings</h1>
 
 <div class="notification is-info is-light">
-  <p><strong>Configuration is read-only.</strong> It is loaded from env files and the environment at
+  <p><strong>Configuration is read-only.</strong> Apart from the appearance, which is a browser setting, it is loaded from env files and the environment at
   startup, so there is nothing to submit here, logged in or not.</p>
   <p class="mt-2 is-size-7">Files read, later ones win, the real environment wins over all:
     {{range .Files}}<code class="mr-2">{{.}}</code>{{end}}
@@ -10,12 +10,32 @@
 </div>
 
 <div class="box">
+  <div class="level">
+    <div class="level-left">
+      <div>
+        <h2 class="title is-6 mb-1">Appearance</h2>
+        <p class="help mt-0">Stored in this browser only, not in the configuration.</p>
+      </div>
+    </div>
+    <div class="level-right">
+      <div class="buttons has-addons are-small">
+        {{template "theme-button" (dict "Value" "" "Label" "Auto" "Theme" .Theme)}}
+        {{template "theme-button" (dict "Value" "light" "Label" "Light" "Theme" .Theme)}}
+        {{template "theme-button" (dict "Value" "dark" "Label" "Dark" "Theme" .Theme)}}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="box">
   <h2 class="title is-6">Core</h2>
+  <div class="table-container">
   <table class="table is-fullwidth">
     <tbody>
       {{range .Core}}{{template "settings-field" .}}{{end}}
     </tbody>
   </table>
+  </div>
 </div>
 
 {{range .Systems}}
@@ -29,11 +49,13 @@
   </div>
 
   {{if .Fields}}
+  <div class="table-container">
   <table class="table is-fullwidth">
     <tbody>
       {{range .Fields}}{{template "settings-field" .}}{{end}}
     </tbody>
   </table>
+  </div>
   {{else}}
     <p class="has-text-grey is-size-7">No settings.</p>
   {{end}}
@@ -46,22 +68,35 @@
     <div class="level-left"><h2 class="title is-6 mb-0">{{.Title}}</h2></div>
     <div class="level-right"><span class="tag is-info is-light">link, {{.Mode}}</span></div>
   </div>
+  <div class="table-container">
   <table class="table is-fullwidth">
     <tbody>
       {{range .Fields}}{{template "settings-field" .}}{{end}}
     </tbody>
   </table>
+  </div>
 </div>
 {{end}}
 {{end}}
 
 {{define "settings-field"}}
+{{/* On a phone the label moves into the value cell, above the value,
+     instead of squeezing it into whatever width a long variable name leaves. */}}
 <tr>
-  <td style="width:16rem"><strong>{{.Label}}</strong><br><code class="is-size-7">{{.EnvName}}</code></td>
+  <td class="is-hidden-mobile">{{template "settings-label" .}}</td>
   <td>
+    <div class="is-hidden-tablet mb-2">{{template "settings-label" .}}</div>
     {{if .Set}}{{.Value}}{{else if .Value}}<span class="has-text-grey">{{.Value}}</span>{{else}}<span class="tag is-warning">not set</span>{{end}}
     {{if .Source}}<span class="tag is-light ml-2">{{.Source}}</span>{{end}}
     {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
   </td>
 </tr>
+{{end}}
+
+{{define "settings-label"}}<strong>{{.Label}}</strong><br><code class="is-size-7" style="overflow-wrap:anywhere">{{.EnvName}}</code>{{end}}
+
+{{/* theme-button expects: .Value ("", "light", "dark") .Label .Theme (current) */}}
+{{define "theme-button"}}
+<button type="button" class="button{{if eq .Value .Theme}} is-link is-selected{{end}}"
+        data-armdash-theme="{{.Value}}" onclick="armdashSetTheme('{{.Value}}')">{{.Label}}</button>
 {{end}}

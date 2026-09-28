@@ -11,10 +11,11 @@
   <div class="notification is-danger"><strong>Could not reach the FRITZ!Box.</strong><br>{{.Err}}</div>
 {{else}}
   <div class="box">
+  <div class="table-container">
   <table class="table is-fullwidth is-hoverable">
     <thead>
       <tr>
-        <th>Device</th><th>Model</th>
+        <th>Device</th><th class="is-hidden-mobile">Model</th>
         <th class="has-text-right">Power</th>
         <th class="has-text-right">Energy</th>
         <th class="has-text-right">Temp</th>
@@ -28,7 +29,7 @@
       {{range .Devices}}
       <tr{{if not .Present}} class="has-text-grey-light"{{end}}>
         <td><strong>{{.Name}}</strong>{{if not .Present}} <span class="tag is-light">absent</span>{{end}}</td>
-        <td class="is-size-7 has-text-grey">{{.Product}}</td>
+        <td class="is-size-7 has-text-grey is-hidden-mobile">{{.Product}}</td>
         <td class="has-text-right">{{.Power}}</td>
         <td class="has-text-right">{{.Energy}}</td>
         <td class="has-text-right">{{.Temp}}</td>
@@ -41,6 +42,7 @@
       {{end}}
     </tbody>
   </table>
+  </div>
   </div>
   <p class="is-size-7 has-text-grey">
     Read directly from the box. The same reading feeds <code>/metrics</code>, which Prometheus

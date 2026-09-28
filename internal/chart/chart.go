@@ -59,17 +59,19 @@ func (c Chart) lines() []Series {
 	return []Series{{Query: c.Query}}
 }
 
-// Windows is what the range selector offers.
+// Windows is what the range selector offers. Refresh is how often an open
+// chart reloads: a year gains nothing visible in a minute, an hour does.
 var Windows = []struct {
-	Span  time.Duration
-	Label string
+	Span    time.Duration
+	Label   string
+	Refresh time.Duration
 }{
-	{time.Hour, "last hour"},
-	{6 * time.Hour, "last 6 hours"},
-	{24 * time.Hour, "last day"},
-	{7 * 24 * time.Hour, "last week"},
-	{30 * 24 * time.Hour, "last 30 days"},
-	{365 * 24 * time.Hour, "last year"},
+	{time.Hour, "last hour", 30 * time.Second},
+	{6 * time.Hour, "last 6 hours", time.Minute},
+	{24 * time.Hour, "last day", 2 * time.Minute},
+	{7 * 24 * time.Hour, "last week", 10 * time.Minute},
+	{30 * 24 * time.Hour, "last 30 days", 30 * time.Minute},
+	{365 * 24 * time.Hour, "last year", time.Hour},
 }
 
 // HourOrDay is a bucket rule: per hour up to a day, per day beyond.
@@ -142,7 +144,8 @@ func (s *Set) Page(c Chart, unconfigured bool) Page {
 		if w.Span == open {
 			sel = " selected"
 		}
-		fmt.Fprintf(&opts, `<option value="%d"%s>%s</option>`, int(w.Span/time.Second), sel, w.Label)
+		fmt.Fprintf(&opts, `<option value="%d" data-refresh="%d"%s>%s</option>`,
+			int(w.Span/time.Second), int(w.Refresh/time.Second), sel, w.Label)
 	}
 
 	top := system.PageTop{Title: c.Title}
