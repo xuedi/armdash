@@ -2,8 +2,8 @@
 // another site below the dashboard's navbar.
 //
 // A link is not a system: it has no Go code of its own, no sidebar and no
-// templates, only a title, a URL and a mode. Adding one is an edit to the env
-// file, never a build.
+// templates, only a title, a URL and a mode. Adding one is a row on the
+// settings page or a few lines in the env file, never a build.
 package links
 
 import (
@@ -38,6 +38,12 @@ var fields = []string{"url", "title", "mode"}
 // Only letters and digits: the env name maps both - and _ to _, so allowing
 // either would make my-wiki and my_wiki the same variable.
 var validID = regexp.MustCompile(`^[a-z0-9]+$`)
+
+// ValidID reports whether id can name a link.
+func ValidID(id string) bool { return validID.MatchString(id) }
+
+// Fields are the settings each link has, after its id.
+func Fields() []string { return fields }
 
 type Link struct {
 	ID    string

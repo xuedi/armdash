@@ -56,16 +56,15 @@ install: build
     getent passwd {{app}} >/dev/null 2>&1 || sudo useradd --system --gid {{app}} --home-dir / \
         --no-create-home --shell "$nologin" --comment "armdash dashboard" {{app}}
     sudo install -d -m 0750 -o root -g {{app}} /etc/{{app}}
-    [ -f "$conf" ] || sudo install -m 0640 -o root -g {{app}} .env.dist "$conf"
+    [ -f "$conf" ] || sudo install -m 0640 -o root -g {{app}} packaging/armdash.env "$conf"
     sed "s#^ExecStart=/usr/bin/{{app}}#ExecStart=$bin#" packaging/systemd/{{app}}.service | sudo tee "$unit" >/dev/null
     sudo systemctl daemon-reload
     echo
     echo "installed; the unit is disabled. to finish:"
-    echo "  1. sudoedit $conf     address, Prometheus, FRITZ!Box"
-    echo "  2. $bin passwd        and add the two lines it prints to $conf"
-    echo "  3. Prometheus and node_exporter from the distribution, scraping node_exporter"
+    echo "  1. Prometheus and node_exporter from the distribution, scraping node_exporter"
     echo "     and armdash, see packaging/prometheus/prometheus.yml and docs/install.md"
-    echo "  4. sudo systemctl enable --now {{app}}"
+    echo "  2. sudo systemctl enable --now {{app}}"
+    echo "  3. open http://$(hostname):9494/ and create the login, then fill in the settings"
 
 # Local dry run of the whole packaging pipeline: builds the binary and every
 # distro package into ./dist without publishing (needs goreleaser on PATH).

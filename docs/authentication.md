@@ -10,7 +10,7 @@ wall.
 |---|---|---|
 | dashboards, charts, the floor plan | shown | shown, plus Upload and Edit |
 | any write under `/s/<id>/api/` | 401 | allowed |
-| Settings | redirected to the login | shown |
+| Settings, and saving them | redirected to the login | shown |
 | `/metrics`, `/static/` | open | open |
 
 `/metrics` is open because Prometheus scrapes it and has no session to offer.
@@ -20,14 +20,31 @@ The check sits in the shell, not in the systems. Every request that is not `GET`
 so a write endpoint a future system adds is covered without anyone having to remember it. A system
 only asks `system.CanEdit` whether to draw its edit controls, see [systems.md](systems.md).
 
-**With no login configured, nothing can be changed.** Writes answer 403, no page offers an edit
-control, and Settings stays open as it was before there was a login, so a fresh install can still
-be inspected. That is the safe default: an upgrade from a version without a login loses the Upload
-and Edit buttons until the two lines below are added, rather than leaving them open.
+## First start
 
-## Configuring it
+A fresh install has a data directory and no login. Until one exists, every page leads to
+`/settings`, which shows only one form: a user name and the password twice. Saving it stores the
+login and logs the new owner straight in, onto the full settings page. `/metrics` keeps answering
+meanwhile, so Prometheus loses nothing.
 
-Two lines in the env file, like every other setting:
+The form is there for whoever opens the page first. The packaged env file listens on the network,
+so set it up right after enabling the service, or before that restrict `AD_CORE_ADDR` to
+`127.0.0.1:9494` and open the page through an SSH tunnel. Once a login exists the form refuses,
+and only the logged-in owner can change it.
+
+Without a data directory and without a login nothing can be changed: writes answer 403, no page
+offers an edit control, and Settings stays open and read-only, so such an install can still be
+inspected.
+
+## Changing it
+
+On the settings page, in the Login box: a new user name or a new password, and the current
+password for either. Wrong current passwords count against the limiter below like failed logins. A
+new password ends every other session; the browser that made the change stays logged in.
+
+## In an env file
+
+Two lines, like every other setting:
 
 ```ini
 AD_CORE_AUTH_USER=admin
@@ -35,10 +52,13 @@ AD_CORE_AUTH_PASSWORD_HASH=pbkdf2-sha256:600000:<salt>:<key>
 ```
 
 `armdash passwd` asks for the password twice, without echo, and prints both lines. It writes no
-file. Configuration is only ever changed by editing the env file and restarting, so there is no page
-and no command that can quietly change who may log in; changing the password is running `passwd`
-again. Setting one of the two without the other, or a damaged hash, refuses to start, rather than
-starting with a login nobody can pass.
+file. A login in an env file wins over the stored one, and the page then shows it without a form.
+Setting one of the two without the other, or a damaged hash, refuses to start, rather than starting
+with a login nobody can pass.
+
+After a lost password, either put the two lines from `passwd` into the env file and restart, which
+keeps the login in the file from then on, or delete the two `AD_CORE_AUTH_` entries from
+`settings.json` in the data directory and restart, which brings back the first-start form.
 
 The hash is **PBKDF2-HMAC-SHA256**, 600,000 iterations, a 16-byte random salt and a 32-byte key,
 written as `pbkdf2-sha256:<iterations>:<salt>:<key>` in unpadded base64url. That alphabet has no
@@ -87,8 +107,10 @@ let a guesser pick a fresh address for every attempt.
 
 ## Rejected
 
-- **A setup page that creates the account.** It needs the app to write its own configuration, which
-  is exactly what armdash does not do. `passwd` prints, the operator pastes.
+- **A one-time setup code in the journal**, so only somebody with a shell on the server could
+  create the first login. Safer against a stranger on the LAN who opens the page first, but it puts
+  a terminal step back into an install whose point is that it needs none. The window is short and
+  the first login is visible to the owner at once, since the owner's own password would not work.
 - **More than one user, or roles.** A dashboard needs an owner, not user management.
 - **A signed cookie holding the session.** It cannot be revoked before it expires; a server-side
   session ends the moment the owner logs out.

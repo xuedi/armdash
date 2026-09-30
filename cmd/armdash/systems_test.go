@@ -10,7 +10,7 @@ import (
 // The navbar, and with it the default page, follows registration order.
 func TestSystemsRegisterInNavbarOrder(t *testing.T) {
 	var ids []string
-	for _, s := range system.All() {
+	for _, s := range system.New() {
 		ids = append(ids, s.ID())
 	}
 	if got := strings.Join(ids, ", "); got != "host, fritzhome" {

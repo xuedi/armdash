@@ -12,11 +12,10 @@ ExecStart=/usr/bin/armdash -env /etc/armdash/armdash.env
 Restart=on-failure
 RestartSec=5
 
-# Hardening. Configuration is read-only by design and every metric lives in
-# Prometheus. The one thing the app writes is what people change through a
-# page, an uploaded floor plan and device positions, and that goes to
-# /var/lib/armdash, the only writable path. The rest of the filesystem
-# stays read-only.
+# Hardening. Every metric lives in Prometheus. The one thing the app writes is
+# what people change through a page, the settings, an uploaded floor plan and
+# device positions, and that goes to /var/lib/armdash, the only writable path.
+# The rest of the filesystem, the env file included, stays read-only.
 StateDirectory=armdash
 NoNewPrivileges=yes
 ProtectSystem=strict

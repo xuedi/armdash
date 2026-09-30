@@ -1,12 +1,26 @@
 {{define "settings"}}
 <h1 class="title is-4">Settings</h1>
 
+<div class="columns">
+<div class="column is-8-desktop">
+
+{{if .Welcome}}
+<div class="notification is-success is-light">
+  <strong>The login is created and you are logged in.</strong>
+  Next, enter where Prometheus runs and the FRITZ!Box user. The status box tells what is still missing.
+</div>
+{{end}}
+
 <div class="notification is-info is-light">
-  <p><strong>Configuration is read-only.</strong> Apart from the appearance, which is a browser setting, it is loaded from env files and the environment at
-  startup, so there is nothing to submit here, logged in or not.</p>
-  <p class="mt-2 is-size-7">Files read, later ones win, the real environment wins over all:
-    {{range .Files}}<code class="mr-2">{{.}}</code>{{end}}
-    Edit a file and restart to apply.</p>
+  {{if .Writable}}
+  <p>Saved settings apply at once and are kept in <code>{{.StorePath}}</code>.
+  A value set in an env file or the environment wins over this page, and its field is locked,
+  naming the file. Delete the line there to manage it here.</p>
+  {{else}}
+  <p><strong>Settings cannot be saved here</strong>: there is no data directory.
+  Everything is read from env files and the environment. Set <code>AD_CORE_DATA_DIR</code>,
+  or run the packaged service, which has one, to manage them on this page.</p>
+  {{end}}
 </div>
 
 <div class="box">
@@ -14,7 +28,7 @@
     <div class="level-left">
       <div>
         <h2 class="title is-6 mb-1">Appearance</h2>
-        <p class="help mt-0">Stored in this browser only, not in the configuration.</p>
+        <p class="help mt-0">Stored in this browser only, not in the settings.</p>
       </div>
     </div>
     <div class="level-right">
@@ -27,56 +41,218 @@
   </div>
 </div>
 
-<div class="box">
-  <h2 class="title is-6">Core</h2>
-  <div class="table-container">
-  <table class="table is-fullwidth">
-    <tbody>
-      {{range .Core}}{{template "settings-field" .}}{{end}}
-    </tbody>
-  </table>
-  </div>
-</div>
+{{template "settings-section" .Core}}
+{{range .Systems}}{{template "settings-section" .}}{{end}}
 
-{{range .Systems}}
-<div class="box">
-  <div class="level mb-3">
-    <div class="level-left"><h2 class="title is-6 mb-0">{{.Title}}</h2></div>
-    <div class="level-right">
-      {{if .Enabled}}<span class="tag is-success">shown</span>{{else}}<span class="tag">hidden</span>{{end}}
-      <code class="is-size-7 ml-2">{{.EnvName}}</code>
+{{with .Links}}
+<div class="box" id="links">
+  <h2 class="title is-6 mb-2">Navbar links</h2>
+  <p class="help mb-3">Other sites under the navbar. <em>frame</em> loads the URL in the browser,
+  <em>proxy</em> forwards <code>/x/&lt;id&gt;/</code> to it so it only has to be reachable from here,
+  <em>tab</em> opens a new tab. The id is made from the title when left empty. The arrows and
+  &times; save at once.</p>
+  {{if .Saved}}<div class="notification is-success is-light py-2">Saved.</div>{{end}}
+  {{if .Err}}<div class="notification is-danger is-light py-2">{{.Err}}</div>{{end}}
+  {{if .Locked}}<p class="mb-3"><span class="tag is-light">set in {{.Locked}}</span></p>{{end}}
+  <form method="post" action="/settings/links">
+    {{/* Enter in a field presses the form's first submit button. Without this
+         one that would be a move arrow. */}}
+    <button type="submit" tabindex="-1" aria-hidden="true" style="position: absolute; left: -9999px"></button>
+    <input type="hidden" name="rows" value="{{len .Rows}}">
+    <div class="table-container">
+    <table class="table is-fullwidth is-narrow">
+      <thead><tr><th>Id</th><th>Title</th><th>URL</th><th>Mode</th><th></th></tr></thead>
+      <tbody>
+      {{$ed := .Editable}}{{$modes := .Modes}}{{$last := .LastIndex}}
+      {{range .Rows}}
+      <tr>
+        <td style="min-width: 5rem">
+          {{if .New}}<input type="hidden" name="new.{{.Index}}" value="1">
+          <input class="input is-small" name="id.{{.Index}}" value="{{.ID}}" placeholder="new"{{if not $ed}} disabled{{end}}>
+          {{else}}<input type="hidden" name="id.{{.Index}}" value="{{.ID}}"><code>{{.ID}}</code>{{end}}
+        </td>
+        <td style="min-width: 7rem"><input class="input is-small" name="title.{{.Index}}" value="{{.Title}}"{{if not $ed}} disabled{{end}}></td>
+        <td style="min-width: 10rem"><input class="input is-small" type="url" name="url.{{.Index}}" value="{{.URL}}" placeholder="http://"{{if not $ed}} disabled{{end}}></td>
+        <td>
+          <div class="select is-small">
+            <select name="mode.{{.Index}}"{{if not $ed}} disabled{{end}}>
+              {{$m := .Mode}}{{range $modes}}<option{{if eq . $m}} selected{{end}}>{{.}}</option>{{end}}
+            </select>
+          </div>
+        </td>
+        <td class="has-text-right" style="white-space: nowrap">
+          {{if and $ed (not .New)}}
+          <div class="buttons has-addons is-inline-flex is-flex-wrap-nowrap mb-0">
+            <button class="button is-small mb-0" name="move" value="{{.Index}}:up" title="Move up"{{if eq .Index 0}} disabled{{end}}>&uarr;</button>
+            <button class="button is-small mb-0" name="move" value="{{.Index}}:down" title="Move down">&darr;</button>
+          </div>
+          <button class="button is-small is-danger is-light mb-0 ml-1" name="remove" value="{{.Index}}" title="Remove">&times;</button>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
     </div>
-  </div>
+    {{if .Editable}}<button class="button is-link" type="submit">Save</button>{{end}}
+  </form>
+</div>
+{{end}}
 
-  {{if .Fields}}
-  <div class="table-container">
-  <table class="table is-fullwidth">
-    <tbody>
-      {{range .Fields}}{{template "settings-field" .}}{{end}}
-    </tbody>
-  </table>
-  </div>
+{{with .Login}}
+<div class="box" id="login">
+  <h2 class="title is-6">Login</h2>
+  {{if .Saved}}<div class="notification is-success is-light py-2">Saved.</div>{{end}}
+  {{if .Err}}<div class="notification is-danger is-light py-2">{{.Err}}</div>{{end}}
+  {{if .Editable}}
+  <form method="post" action="/settings/login">
+    <div class="field">
+      <label class="label" for="login-user">User name</label>
+      <div class="control"><input class="input" id="login-user" name="user" value="{{.User}}" autocomplete="username" required></div>
+    </div>
+    <div class="columns mb-0">
+      <div class="column">
+        <div class="field">
+          <label class="label" for="login-new">New password</label>
+          <div class="control"><input class="input" type="password" id="login-new" name="password" autocomplete="new-password" placeholder="leave empty to keep it"></div>
+        </div>
+      </div>
+      <div class="column">
+        <div class="field">
+          <label class="label" for="login-confirm">Repeat it</label>
+          <div class="control"><input class="input" type="password" id="login-confirm" name="confirm" autocomplete="new-password"></div>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <label class="label" for="login-current">Current password</label>
+      <div class="control"><input class="input" type="password" id="login-current" name="current" autocomplete="current-password" required></div>
+      <p class="help">Needed for any change. A new password logs out every other browser.</p>
+    </div>
+    <button class="button is-link" type="submit">Save</button>
+  </form>
+  {{else if .Locked}}
+  <p><strong>{{.User}}</strong> <span class="tag is-light ml-2">set in {{.Locked}}</span></p>
+  <p class="help">Change it there, <code>armdash passwd</code> prints a new hash.</p>
+  {{else if .User}}
+  <p><strong>{{.User}}</strong></p>
   {{else}}
-    <p class="has-text-grey is-size-7">No settings.</p>
+  <p class="has-text-grey">No login. Set <code>AD_CORE_AUTH_USER</code> and <code>AD_CORE_AUTH_PASSWORD_HASH</code>,
+  <code>armdash passwd</code> prints them.</p>
   {{end}}
 </div>
 {{end}}
 
-{{range .Links}}
 <div class="box">
-  <div class="level mb-3">
-    <div class="level-left"><h2 class="title is-6 mb-0">{{.Title}}</h2></div>
-    <div class="level-right"><span class="tag is-info is-light">link, {{.Mode}}</span></div>
-  </div>
+  <h2 class="title is-6">Server</h2>
+  <p class="help mb-3">Read from the env file at startup, a change needs a restart.</p>
   <div class="table-container">
   <table class="table is-fullwidth">
     <tbody>
-      {{range .Fields}}{{template "settings-field" .}}{{end}}
+      {{range .Server}}{{template "settings-field" .}}{{end}}
     </tbody>
   </table>
   </div>
 </div>
+
+</div>
+<div class="column is-4-desktop">
+  {{/* Sticky so the status stays in view beside a long form. */}}
+  <div class="box" style="position: sticky; top: 1rem"
+       hx-get="/settings/status" hx-trigger="load, every 30s [!document.hidden]">
+    <h2 class="title is-6">Status</h2>
+    <p class="has-text-grey is-size-7">Checking…</p>
+  </div>
+</div>
+</div>
 {{end}}
+
+{{/* settings-section is one form: a core group or a system. */}}
+{{define "settings-section"}}
+<div class="box" id="{{.ID}}">
+  <form method="post" action="{{.Action}}">
+    <div class="level is-mobile mb-3">
+      <div class="level-left"><h2 class="title is-6 mb-0">{{.Title}}</h2></div>
+      <div class="level-right">
+        {{with .Toggle}}
+        <label class="checkbox">
+          <input type="checkbox" name="{{.Name}}" value="1"{{if .On}} checked{{end}}{{if .Disabled}} disabled{{end}}>
+          {{.Label}}
+        </label>
+        {{if .Locked}}<span class="tag is-light ml-2">set in {{.Locked}}</span>{{end}}
+        {{end}}
+      </div>
+    </div>
+    {{if .Saved}}<div class="notification is-success is-light py-2">Saved.</div>{{end}}
+    {{if .Err}}<div class="notification is-danger is-light py-2">{{.Err}}</div>{{end}}
+    {{range .Fields}}{{template "settings-input" .}}{{end}}
+    {{if .Editable}}<button class="button is-link mt-2" type="submit">Save</button>{{end}}
+  </form>
+</div>
+{{end}}
+
+{{define "settings-input"}}
+<div class="field">
+  <label class="label" for="f-{{.Name}}">{{.Label}}</label>
+  <div class="control">
+    <input class="input{{if .Err}} is-danger{{end}}" id="f-{{.Name}}" name="{{.Name}}" type="{{.Input}}"
+           value="{{.Value}}" placeholder="{{.Placeholder}}"{{if eq .Input "password"}} autocomplete="new-password"{{end}}{{if .Disabled}} disabled{{end}}>
+  </div>
+  {{if .Err}}<p class="help is-danger">{{.Err}}</p>{{end}}
+  <p class="help">{{if .Locked}}<span class="tag is-light mr-1">set in {{.Locked}}</span>{{end}}{{.Help}}
+    <span class="has-text-grey-light" style="overflow-wrap:anywhere">{{.EnvName}}</span></p>
+</div>
+{{end}}
+
+{{define "settings-status"}}
+<h2 class="title is-6">Status</h2>
+{{range .}}
+<p class="heading mt-4 mb-2">{{.Title}}</p>
+{{range .Checks}}
+<div class="media mb-2 mt-0 pt-0" style="border: 0">
+  <div class="media-left mr-2">
+    {{if eq .Level "ok"}}<span class="tag is-success is-light">ok</span>
+    {{else if eq .Level "warning"}}<span class="tag is-warning">to do</span>
+    {{else}}<span class="tag is-danger">error</span>{{end}}
+  </div>
+  <div class="media-content">
+    <p class="has-text-weight-semibold">{{.Title}}</p>
+    {{if .Detail}}<p class="is-size-7 has-text-grey" style="overflow-wrap:anywhere">{{.Detail}}</p>{{end}}
+  </div>
+</div>
+{{end}}
+{{end}}
+<p class="is-size-7 has-text-grey mt-4">Checked again every 30 s.</p>
+{{end}}
+
+{{define "setup"}}
+<div class="columns is-centered">
+  <div class="column is-6-tablet is-5-desktop">
+    <div class="box">
+      <h1 class="title is-4">Welcome to armdash</h1>
+      <p class="mb-4">Create the login first. It is the one account that may change settings, upload a
+      floor plan and place devices; the dashboards stay readable without it. Prometheus, the FRITZ!Box
+      and navbar links come next, on the settings page.</p>
+      {{if .Err}}<div class="notification is-danger is-light">{{.Err}}</div>{{end}}
+      <form method="post" action="/settings/setup">
+        <div class="field">
+          <label class="label" for="setup-user">User name</label>
+          <div class="control"><input class="input" id="setup-user" name="user" value="{{.User}}" autocomplete="username" required autofocus></div>
+        </div>
+        <div class="field">
+          <label class="label" for="setup-password">Password</label>
+          <div class="control"><input class="input" type="password" id="setup-password" name="password" autocomplete="new-password" minlength="8" required></div>
+          <p class="help">At least 8 characters.</p>
+        </div>
+        <div class="field">
+          <label class="label" for="setup-confirm">Repeat the password</label>
+          <div class="control"><input class="input" type="password" id="setup-confirm" name="confirm" autocomplete="new-password" minlength="8" required></div>
+        </div>
+        <button type="submit" class="button is-link is-fullwidth mt-4">Create login</button>
+      </form>
+    </div>
+  </div>
+</div>
 {{end}}
 
 {{define "settings-field"}}
@@ -93,7 +269,7 @@
 </tr>
 {{end}}
 
-{{define "settings-label"}}<strong>{{.Label}}</strong><br><code class="is-size-7" style="overflow-wrap:anywhere">{{.EnvName}}</code>{{end}}
+{{define "settings-label"}}<strong>{{.Label}}</strong>{{if .EnvName}}<br><code class="is-size-7" style="overflow-wrap:anywhere">{{.EnvName}}</code>{{end}}{{end}}
 
 {{/* theme-button expects: .Value ("", "light", "dark") .Label .Theme (current) */}}
 {{define "theme-button"}}

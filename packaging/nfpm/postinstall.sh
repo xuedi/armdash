@@ -4,8 +4,8 @@
 # system user, seeds the configuration file if there is not one already and
 # prints the steps still missing. It reads the local Prometheus setup to know
 # which, but never changes it, that configuration belongs to another package.
-# The unit ships disabled: credentials go in first, the operator enables the
-# service afterwards. An upgrade restarts a running service on the new binary.
+# The unit ships disabled, the operator enables it; the login and the rest of
+# the settings are then set up on the settings page. An upgrade restarts a running service on the new binary.
 set -e
 
 CONF_DIR=/etc/armdash
@@ -98,19 +98,6 @@ prom_url=$(conf AD_CORE_PROMETHEUS_URL)
 echo
 echo "armdash is installed. The systemd unit is present but disabled. To finish:"
 
-step "sudoedit $CONF" \
-	"AD_CORE_ADDR           where to listen, :80 for the default HTTP port" \
-	"AD_CORE_TLS_*          certificate, key and :443 to serve HTTPS as well" \
-	"AD_CORE_PROMETHEUS_URL where the metrics are read from" \
-	"AD_SYSTEM_FRITZHOME_*  FRITZ!Box host and credentials"
-
-if [ -z "$(conf AD_CORE_AUTH_PASSWORD_HASH)" ]; then
-	step "armdash passwd" \
-		"prints AD_CORE_AUTH_USER and AD_CORE_AUTH_PASSWORD_HASH for $CONF," \
-		"the login that uploads a floor plan and places devices; without it" \
-		"nothing can be changed"
-fi
-
 units=
 case "$prom_url" in
 "" | *://127.0.0.1* | *://localhost* | *://\[::1\]*)
@@ -164,6 +151,12 @@ case "$prom_url" in
 esac
 
 step "sudo systemctl enable --now$units armdash"
+
+host=$(hostname 2>/dev/null || echo localhost)
+step "open http://$host:$port/ in a browser" \
+	"create the login, then enter Prometheus, the FRITZ!Box and any" \
+	"navbar links on the settings page; its status box lists what is" \
+	"still missing. $CONF only holds the address and HTTPS"
 
 cat <<EOF
 

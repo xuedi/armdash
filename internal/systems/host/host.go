@@ -235,3 +235,19 @@ func humanDuration(d time.Duration) string {
 	}
 	return fmt.Sprintf("%dh %dm", hours, int(d.Minutes())%60)
 }
+
+// Status implements system.Checker for the settings page.
+func (h *Host) Status(ctx context.Context) []system.Check {
+	if h.deps.PromURL() == "" {
+		return nil
+	}
+	_, ok, err := h.prom.QueryOne(ctx, "count(node_uname_info)")
+	switch {
+	case err != nil:
+		return nil
+	case !ok:
+		return []system.Check{{Title: "node_exporter", Level: "warning",
+			Detail: "Prometheus has no node_exporter data, so the Host pages stay empty. Add the node job, see docs/install.md."}}
+	}
+	return []system.Check{{Title: "node_exporter", Level: "ok", Detail: "Scraped by Prometheus"}}
+}

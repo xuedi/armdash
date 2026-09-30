@@ -72,7 +72,7 @@ nfpms:
       # Seeded into /etc by the post-install, which never overwrites an existing
       # file. Shipping it straight to /etc would let an upgrade clobber the
       # credentials.
-      - src: .env.dist
+      - src: packaging/armdash.env
         dst: /usr/share/armdash/armdash.env.example
       # For copying. Nothing edits the configuration Prometheus ships with.
       - src: packaging/prometheus/prometheus.yml

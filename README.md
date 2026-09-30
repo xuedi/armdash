@@ -1,6 +1,6 @@
 # armdash
 
-![version](https://img.shields.io/badge/version-0.16.1-blue)
+![version](https://img.shields.io/badge/version-0.17.0-blue)
 ![licence](https://img.shields.io/badge/licence-EUPL--1.2-brightgreen)
 
 A single-binary web dashboard for a home server. One tab per *system*: server
@@ -90,12 +90,14 @@ built from the same commit. The full list is in
 
 ```bash
 sudo pacman -U armdash_*_linux_arm64.pkg.tar.zst   # brings Prometheus and node_exporter
-armdash passwd                                     # prints the login lines
-sudoedit /etc/armdash/armdash.env                  # address, Prometheus, FRITZ!Box, login
 sudo cp /usr/share/armdash/prometheus.yml.example /etc/prometheus/prometheus.yml
 sudoedit /etc/conf.d/prometheus                    # PROMETHEUS_ARGS="--storage.tsdb.retention.time=10y"
 sudo systemctl enable --now prometheus prometheus-node-exporter armdash
 ```
+
+Then open `http://<server>:9494/`: the first visit creates the login, and the
+settings page takes Prometheus, the FRITZ!Box and any navbar links, with a
+status box that lists what is still missing.
 
 That is Arch. On Debian, Ubuntu and Fedora install with
 `sudo apt install ./armdash_*.deb` or `sudo dnf install ./armdash_*.rpm`, not
@@ -111,8 +113,8 @@ dependencies.
 
 The package installs a hardened systemd unit that runs as a dedicated
 unprivileged user with the filesystem read-only except for one directory,
-`/var/lib/armdash`, which holds an uploaded floor plan and the device
-positions. Configuration is read-only and the history lives in Prometheus.
+`/var/lib/armdash`, which holds the saved settings, an uploaded floor plan and
+the device positions. The history lives in Prometheus.
 `CAP_NET_BIND_SERVICE` is granted so ports 80 and 443 work without root.
 
 armdash keeps no history itself, so a full deployment is three services:
@@ -124,20 +126,19 @@ where containers are preferred.
 
 ## Configuring it
 
-Env files and the environment, nothing else: `.env.dist` for committed defaults,
-`.env.local` for credentials, real environment variables winning over both. The
-packaged unit reads `/etc/armdash/armdash.env` instead.
+On the settings page, by the logged-in owner. Each box saves on its own and
+applies at once, no restart; the values go to `settings.json` in the data
+directory. The env file, `/etc/armdash/armdash.env` for the package, only needs
+where to listen and HTTPS:
 
 ```ini
-AD_CORE_ADDR=127.0.0.1:9494
-AD_CORE_PROMETHEUS_URL=http://127.0.0.1:9090
-AD_SYSTEM_FRITZHOME_URL=http://fritz.box
+AD_CORE_ADDR=:9494
 ```
 
-Configuration is **read-only at runtime**, which is the point. The Settings page
-shows what is set and where each value came from, but nothing writes it back,
-not even for someone logged in: the password changes by editing the file. Full
-key list in [`docs/configuration.md`](docs/configuration.md).
+Any other `AD_` variable still works there, or in the environment, and wins
+over the page, which then shows that field locked. So Docker and installs from
+before 0.17 run unchanged. Full key list and the precedence in
+[`docs/configuration.md`](docs/configuration.md).
 
 Setting `AD_CORE_TLS_CERT` and `AD_CORE_TLS_KEY` turns on HTTPS on
 `AD_CORE_TLS_ADDR`. The plain port then redirects there, except `/metrics`,

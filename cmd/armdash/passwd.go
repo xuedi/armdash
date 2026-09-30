@@ -14,9 +14,10 @@ import (
 	"armdash/internal/auth"
 )
 
-// passwd prints the two settings that turn the login on. It writes no file:
-// configuration only ever changes by editing the env file, so there is no page
-// or command that can quietly change who may log in.
+// passwd prints the two settings that set the login in an env file. The
+// normal way is the settings page, which asks for the login on first start;
+// this is for installs configured by file, and for getting back in when the
+// password is lost. It writes no file itself.
 func passwd(args []string, in *os.File, out, msg io.Writer) error {
 	fs := flag.NewFlagSet("passwd", flag.ContinueOnError)
 	fs.SetOutput(msg)
@@ -61,7 +62,8 @@ func passwd(args []string, in *os.File, out, msg io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(msg, "\nAdd these two lines to the env file, /etc/armdash/armdash.env for a package install, and restart armdash:")
+	fmt.Fprintln(msg, "\nAdd these two lines to the env file, /etc/armdash/armdash.env for a package install, and restart armdash.")
+	fmt.Fprintln(msg, "They win over the login saved on the settings page:")
 	fmt.Fprintf(out, "AD_CORE_AUTH_USER=%s\nAD_CORE_AUTH_PASSWORD_HASH=%s\n", user, hash)
 	return nil
 }

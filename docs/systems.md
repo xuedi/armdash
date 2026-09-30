@@ -37,6 +37,10 @@ owner's session and passes Go's `http.CrossOriginProtection`, so a write endpoin
 without the system doing anything. A page asks `system.CanEdit(r)` whether to draw its edit
 controls, so a new system gets the login for free. See [authentication.md](authentication.md).
 
+A system may also implement `system.Checker`: a `Status` that returns a few lines for the status
+box on the settings page, what works and what is still missing. FritzHome reports the box login and
+the UPnP traffic counters, Host whether Prometheus has node_exporter data.
+
 `Deps.DataDir` is the system's own directory for what people change through a page, empty when no
 data directory is configured. A system that writes offers nothing to change when it is empty. See
 [configuration.md](configuration.md).
@@ -47,12 +51,20 @@ whenever it reads better without breaking either.
 
 ## Registration
 
-`cmd/armdash/main.go` lists every compiled-in system, in navbar order, and registers them before
-the server starts:
+`cmd/armdash/main.go` lists every compiled-in system, in navbar order, and registers a constructor
+for each before the server starts:
 
 ```go
-var systems = []system.System{&host.Host{}, &fritzhome.FritzHome{}}
+var systems = []func() system.System{
+	func() system.System { return &host.Host{} },
+	func() system.System { return &fritzhome.FritzHome{} },
+}
 ```
+
+A constructor rather than an instance, because saving the settings builds every system afresh:
+a new instance is registered with the new values and swapped in, while requests still running on
+the old one finish undisturbed. A system therefore keeps whatever it builds in `Register`, a client
+or a cache, on itself, and never in a package variable.
 
 The list is explicit on purpose. Systems used to register themselves from their own `init()`, and
 Go runs package init functions in an order it derives from import paths and dependencies, not from

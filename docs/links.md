@@ -4,8 +4,9 @@ Extra top-navbar entries that show another site, a wiki, a Grafana, a NAS interf
 dashboard's own navbar. The navbar stays; only the content area is replaced.
 
 A link is **not a system**. A system is compiled-in Go with its own sidebar, templates and settings
-schema. A link is nothing but configuration, a title, a URL and a mode, so adding one is an edit to
-the env file and a restart, never a build. Links live in the shell, and no system can see them.
+schema. A link is nothing but configuration, a title, a URL and a mode, so adding one is a row in
+the settings page's link table, or a few lines in the env file, never a build. Links live in the
+shell, and no system can see them.
 
 ## Configuration
 

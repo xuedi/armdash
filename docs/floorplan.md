@@ -132,8 +132,8 @@ never be dragged back.
 
 ## Who can change it
 
-Configuration stays read-only, see [configuration.md](configuration.md). The drawing and the device
-positions are data, kept in the system's own data directory: `AD_CORE_DATA_DIR/fritzhome`, or
+The drawing and the device positions are data rather than settings, see
+[configuration.md](configuration.md). They are kept in the system's own data directory: `AD_CORE_DATA_DIR/fritzhome`, or
 `/var/lib/armdash/fritzhome` under the packaged unit, whose `StateDirectory=` provides it. With no
 data directory the page offers neither button and both endpoints answer 404.
 

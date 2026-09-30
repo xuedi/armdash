@@ -37,6 +37,7 @@ const (
 	KindPassword FieldKind = "password"
 	KindURL      FieldKind = "url"
 	KindBool     FieldKind = "bool"
+	KindDuration FieldKind = "duration"
 )
 
 // ConfigField describes one setting. The settings page is generated from
@@ -54,8 +55,8 @@ type ConfigField struct {
 }
 
 // Store is the subset of configuration a system may read: its own keys.
-// There is no setter. Configuration is read-only at runtime, not even the
-// logged-in owner can change it through a page.
+// There is no setter: the owner changes settings on the settings page, and
+// the shell then registers every system afresh with the new values.
 type Store interface {
 	Get(key string) string
 	GetOr(key, def string) string
@@ -85,7 +86,8 @@ type System interface {
 	// the layout, so a system never emits <html> or navigation.
 	Render(slug string, r *http.Request) (template.HTML, error)
 
-	// Register is called once at startup. A system may attach its own
+	// Register is called once on a fresh instance, at startup and again on a
+	// new one whenever the settings change. A system may attach its own
 	// endpoints (htmx fragments, JSON for charts) under prefix, which is
 	// always "/s/<id>/api/".
 	Register(mux *http.ServeMux, prefix string, deps Deps)
@@ -107,14 +109,36 @@ func CanEdit(r *http.Request) bool {
 	return ok
 }
 
-var registry []System
+var registry []func() System
 
-// Register adds a system. The navbar lists systems in the order they were
-// registered.
-func Register(s System) { registry = append(registry, s) }
+// Register adds a system by its constructor. The navbar lists systems in the
+// order they were registered. A constructor rather than an instance because a
+// settings change builds every system anew, while requests on the old ones may
+// still be running.
+func Register(f func() System) { registry = append(registry, f) }
 
-// All returns every compiled-in system, in registration order.
-func All() []System { return registry }
+// New returns a fresh instance of every compiled-in system, in registration
+// order.
+func New() []System {
+	out := make([]System, len(registry))
+	for i, f := range registry {
+		out[i] = f()
+	}
+	return out
+}
+
+// Check is one line in the status box on the settings page.
+type Check struct {
+	Title  string
+	Level  string // "ok", "warning" or "danger"
+	Detail string
+}
+
+// Checker is optional. A system that implements it reports on the settings
+// page whether it works, and what is still missing when it does not.
+type Checker interface {
+	Status(ctx context.Context) []Check
+}
 
 // Metric is one sample for the /metrics endpoint.
 type Metric struct {

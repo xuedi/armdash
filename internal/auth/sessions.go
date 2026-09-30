@@ -63,3 +63,14 @@ func (s *Sessions) Delete(id string) {
 	defer s.mu.Unlock()
 	delete(s.m, id)
 }
+
+// DeleteOthers ends every session but keep, after a password change.
+func (s *Sessions) DeleteOthers(keep string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id := range s.m {
+		if id != keep {
+			delete(s.m, id)
+		}
+	}
+}

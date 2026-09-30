@@ -25,31 +25,16 @@ The post-install creates the `armdash` user, seeds `/etc/armdash/armdash.env` an
 service disabled. It then prints which of the steps below are still missing on this machine. It
 reads the Prometheus configuration to find out, but never changes it.
 
-## armdash itself
+## The env file
 
-```bash
-armdash passwd                       # asks for a password, prints two lines
-sudoedit /etc/armdash/armdash.env    # paste them, set the rest
-```
+`/etc/armdash/armdash.env` only holds what the process needs before it can serve a page: where to
+listen and HTTPS. The seeded file listens on `:9494`, on every interface; `:80` makes it the
+default HTTP port, `127.0.0.1:9494` keeps it to the machine itself. HTTPS is in
+[deployment.md](deployment.md#https). Everything else is set up in the browser, see
+[below](#setting-it-up-in-the-browser).
 
-The lines that matter on a server:
-
-```ini
-AD_CORE_ADDR=:80
-AD_CORE_PROMETHEUS_URL=http://127.0.0.1:9090
-AD_SYSTEM_FRITZHOME_URL=http://fritz.box
-AD_SYSTEM_FRITZHOME_USERNAME=...
-AD_SYSTEM_FRITZHOME_PASSWORD=...
-AD_CORE_AUTH_USER=...
-AD_CORE_AUTH_PASSWORD_HASH=...
-```
-
-For the internet traffic charts, the box needs "Transmit status information over UPnP" switched
-on, under Home Network, Network, Network Settings. It needs no extra permission for the user.
-
-The seeded file listens on `127.0.0.1:9494`, reachable from the machine itself only, and `:80`
-opens it to the network. Every key is in [configuration.md](configuration.md), HTTPS in
-[deployment.md](deployment.md#https) and the login in [authentication.md](authentication.md).
+Any other setting can still go into this file and then wins over the page, see
+[configuration.md](configuration.md).
 
 ## Prometheus
 
@@ -128,6 +113,23 @@ On Debian and Ubuntu both run already, so the restart is all it takes.
 sudo systemctl enable --now armdash
 ```
 
+## Setting it up in the browser
+
+Open `http://<server>:9494/`. A fresh install asks for the login first: a user name and a password
+twice. Saving it logs you in, onto the settings page:
+
+- **Core**: the Prometheus URL, `http://127.0.0.1:9090` when it runs on the same machine.
+- **FritzHome**: the box address, `http://fritz.box` or its IP, and a box user with the Smart Home
+  permission. For the internet traffic charts, the box needs "Transmit status information over
+  UPnP" switched on, under Home Network, Network, Network Settings; it needs no extra permission for
+  the user.
+- **Navbar links**, if any.
+
+Each box saves on its own and applies at once. The status box beside them lists what works and what
+is still missing, Prometheus not scraping armdash yet for instance. Do this right after starting the
+service: until the login exists, the form is open to whoever reaches the page first, see
+[authentication.md](authentication.md#first-start).
+
 ## Checking it works
 
 - Prometheus' targets page, `http://127.0.0.1:9090/targets` on the machine itself, lists node,
@@ -140,7 +142,7 @@ sudo systemctl enable --now armdash
 
 ## Prometheus on another machine
 
-Point `AD_CORE_PROMETHEUS_URL` at it and add the armdash job there, with this machine's address as
+Enter its URL on the settings page and add the armdash job there, with this machine's address as
 the target, which means `AD_CORE_ADDR` has to listen beyond loopback. For the Host pages to show
 this machine, node_exporter keeps running here and gets a job there too. On Debian and Fedora the
 local Prometheus can be left out at install time with the flags from the first table. On Arch it is
@@ -153,9 +155,11 @@ a dependency and gets installed, but it can simply stay disabled.
 distribution, set up as above.
 
 The tarballs, the only format for FreeBSD and macOS, hold the binary, `.env.dist`, the systemd unit
-and the example Prometheus configuration. Copy `.env.dist` to an env file of its own, fill it in and
-run `armdash -env <that file>` under whatever supervises services there. Uploading a floor plan
-needs a writable directory in `AD_CORE_DATA_DIR`, which the packaged unit gets from systemd.
+and the example Prometheus configuration. Write an env file with `AD_CORE_ADDR` and
+`AD_CORE_DATA_DIR`, a writable directory for the settings and uploads, and run
+`armdash -env <that file>` under whatever supervises services there. The browser does the rest.
+Without a data directory nothing can be saved, and every setting has to go into the env file,
+`.env.dist` lists them.
 
 For containers, `deploy/` holds a Compose stack with Prometheus and node_exporter included.
 
@@ -163,3 +167,7 @@ For containers, `deploy/` holds a Compose stack with Prometheus and node_exporte
 
 Install the newer package the same way. The configuration stays as it is, a running armdash
 restarts on the new binary and a stopped one stays stopped. An upgrade prints nothing.
+
+An install from before 0.17 keeps every setting in its env file, where it wins over the page, so it
+runs on unchanged and the page shows those fields locked. To manage one on the page, delete its line
+from the env file, restart, and enter it there.

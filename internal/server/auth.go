@@ -27,51 +27,55 @@ const (
 	lockFor     = 15 * time.Minute
 )
 
-// login is the one account that may change things. It is nil when none is
-// configured, and then nothing can be changed at all.
-type login struct {
-	user, hash string
-	sessions   *auth.Sessions
-	limiter    *auth.Limiter
+// The login is one user name and one hash, from an env file or saved on the
+// settings page. Without one there is nothing to log in to: a fresh install
+// with a data directory is in setup, where /settings asks for the login
+// first, and one without a data directory cannot change anything.
+func (s *Server) loginPair() (user, hash string) {
+	return s.cfg.Get(authUserKey), s.cfg.Get(authHashKey)
 }
 
-func newLogin(cfg *config.Config) (*login, error) {
+func (s *Server) hasLogin() bool {
+	u, h := s.loginPair()
+	return u != "" && h != ""
+}
+
+// setupMode is a fresh install: no login anywhere, and somewhere to save one.
+func (s *Server) setupMode() bool { return !s.hasLogin() && s.cfg.Writable() }
+
+// checkLogin stops startup on half a login or a damaged hash, rather than
+// quietly refusing every attempt later.
+func checkLogin(cfg *config.Config) error {
 	user, hash := cfg.Get(authUserKey), cfg.Get(authHashKey)
 	if user == "" && hash == "" {
-		return nil, nil
+		return nil
 	}
 	if user == "" || hash == "" {
-		return nil, fmt.Errorf("%s and %s must be set together",
+		return fmt.Errorf("%s and %s must be set together",
 			config.EnvName(authUserKey), config.EnvName(authHashKey))
 	}
 	if err := auth.Check(hash); err != nil {
-		return nil, fmt.Errorf("%s: %w", config.EnvName(authHashKey), err)
+		return fmt.Errorf("%s: %w", config.EnvName(authHashKey), err)
 	}
-	return &login{
-		user:     user,
-		hash:     hash,
-		sessions: auth.NewSessions(auth.SessionTTL),
-		limiter:  auth.NewLimiter(maxFailures, failWindow, lockFor),
-	}, nil
+	return nil
 }
 
 // withSession marks the request for system.CanEdit when it carries a live
 // session. Every request passes through here, pages and API alike.
 func (s *Server) withSession(r *http.Request) *http.Request {
-	if s.login == nil {
+	if !s.hasLogin() {
 		return r
 	}
-	if c, err := r.Cookie(sessionCookie); err == nil && s.login.sessions.Valid(c.Value) {
+	if c, err := r.Cookie(sessionCookie); err == nil && s.sessions.Valid(c.Value) {
 		return system.AllowEdit(r)
 	}
 	return r
 }
 
 // requireLogin sends a visitor who is not logged in to the login page and
-// reports whether it did. Without a configured login there is nobody to ask
-// for, and the page stays as open as it always was.
+// reports whether it did. Without a login there is nobody to ask for.
 func (s *Server) requireLogin(w http.ResponseWriter, r *http.Request) bool {
-	if s.login == nil || system.CanEdit(r) {
+	if !s.hasLogin() || system.CanEdit(r) {
 		return false
 	}
 	http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
@@ -126,79 +130,81 @@ func clientAddr(r *http.Request) string {
 }
 
 type loginData struct {
-	Configured      bool
-	Next, User, Err string
+	Configured, Setup bool
+	Next, User, Err   string
 }
 
-func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, code int, d loginData) {
-	d.Configured = s.login != nil
+func (t *tree) renderLogin(w http.ResponseWriter, r *http.Request, code int, d loginData) {
+	d.Configured = t.hasLogin()
+	d.Setup = t.setupMode()
 	var body bytes.Buffer
-	if err := s.tmpl.ExecuteTemplate(&body, "login", d); err != nil {
-		s.log.Error("login render failed", "err", err)
+	if err := t.tmpl.ExecuteTemplate(&body, "login", d); err != nil {
+		t.log.Error("login render failed", "err", err)
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
-	l := s.layout(r, nil, "")
+	l := t.layout(r, nil, "")
 	l.PageTitle = "Log in"
 	l.LoginActive = true
 	l.Here = d.Next
 	l.Body = template.HTML(body.String())
-	s.renderCode(w, code, l)
+	t.renderCode(w, code, l)
 }
 
-func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+func (t *tree) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	next := localPath(r.URL.Query().Get("next"))
 	if system.CanEdit(r) {
 		http.Redirect(w, r, next, http.StatusFound)
 		return
 	}
-	s.renderLogin(w, r, http.StatusOK, loginData{Next: next})
+	t.renderLogin(w, r, http.StatusOK, loginData{Next: next})
 }
 
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if s.login == nil {
-		s.renderLogin(w, r, http.StatusForbidden, loginData{})
+func (t *tree) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !t.hasLogin() {
+		t.renderLogin(w, r, http.StatusForbidden, loginData{})
 		return
 	}
 	addr := clientAddr(r)
 	d := loginData{Next: localPath(r.PostFormValue("next")), User: r.PostFormValue("user")}
-	if ok, wait := s.login.limiter.Allowed(addr); !ok {
+	if ok, wait := t.limiter.Allowed(addr); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		d.Err = fmt.Sprintf("Too many failed attempts. Try again in %d minutes.", int(wait.Minutes())+1)
-		s.renderLogin(w, r, http.StatusTooManyRequests, d)
+		t.renderLogin(w, r, http.StatusTooManyRequests, d)
 		return
 	}
 
 	// One password check against the one configured hash, whatever name was
 	// typed, so the time an attempt takes does not tell whether the name was
 	// right.
-	nameOK := subtle.ConstantTimeCompare([]byte(d.User), []byte(s.login.user)) == 1
-	passOK := auth.Verify(r.PostFormValue("password"), s.login.hash)
+	user, hash := t.loginPair()
+	nameOK := subtle.ConstantTimeCompare([]byte(d.User), []byte(user)) == 1
+	passOK := auth.Verify(r.PostFormValue("password"), hash)
 	if !nameOK || !passOK {
-		locked := s.login.limiter.Fail(addr)
-		s.log.Warn("login failed", "addr", addr, "locked", locked)
+		locked := t.limiter.Fail(addr)
+		t.log.Warn("login failed", "addr", addr, "locked", locked)
 		d.Err = "Wrong user name or password."
-		s.renderLogin(w, r, http.StatusUnauthorized, d)
+		t.renderLogin(w, r, http.StatusUnauthorized, d)
 		return
 	}
 
-	s.login.limiter.Reset(addr)
-	id, err := s.login.sessions.Create()
+	t.limiter.Reset(addr)
+	id, err := t.sessions.Create()
 	if err != nil {
-		s.log.Error("creating a session", "err", err)
+		t.log.Error("creating a session", "err", err)
 		http.Error(w, "could not create a session", http.StatusInternalServerError)
 		return
 	}
-	s.setSession(w, r, id, int(auth.SessionTTL.Seconds()))
-	s.log.Info("logged in", "addr", addr)
+	t.setSession(w, r, id, int(auth.SessionTTL.Seconds()))
+	t.log.Info("logged in", "addr", addr)
 	http.Redirect(w, r, d.Next, http.StatusSeeOther)
 }
 
-func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(sessionCookie); err == nil && s.login != nil {
-		s.login.sessions.Delete(c.Value)
+func (t *tree) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		t.sessions.Delete(c.Value)
 	}
-	s.setSession(w, r, "", -1)
+	t.setSession(w, r, "", -1)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

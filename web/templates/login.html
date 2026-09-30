@@ -3,9 +3,13 @@
   <div class="column is-6-tablet is-4-desktop">
     <div class="box">
       <h1 class="title is-4">Log in</h1>
-      {{if not .Configured}}
+      {{if .Setup}}
+      <div class="notification is-info is-light">
+        <p><strong>No login exists yet.</strong> <a href="/settings">Create it on the settings page.</a></p>
+      </div>
+      {{else if not .Configured}}
       <div class="notification is-warning is-light">
-        <p><strong>No login is configured</strong>, so nothing can be changed.</p>
+        <p><strong>No login is configured</strong>, and there is no data directory to save one in, so nothing can be changed.</p>
         <p class="mt-2">Run <code>armdash passwd</code> on the server, add the two lines it prints,
         <code>AD_CORE_AUTH_USER</code> and <code>AD_CORE_AUTH_PASSWORD_HASH</code>, to the env file and restart.</p>
       </div>

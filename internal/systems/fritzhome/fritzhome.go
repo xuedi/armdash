@@ -67,7 +67,7 @@ func (f *FritzHome) ConfigSchema() []system.ConfigField {
 		{Key: "username", Label: "Username", Kind: system.KindText,
 			Help: "A FRITZ!Box user with the Smart Home permission."},
 		{Key: "password", Label: "Password", Kind: system.KindPassword, Secret: true},
-		{Key: "interval", Label: "Poll interval", Kind: system.KindText, Default: "60s",
+		{Key: "interval", Label: "Poll interval", Kind: system.KindDuration, Default: "60s",
 			Help: "How long a reading is reused before the box is asked again."},
 		{Key: "floorplan_file", Label: "Floor plan file", Kind: system.KindText,
 			Help: "Path to a SweetHome3D .sh3d file or a JSON floor plan. A plan uploaded on the floor plan page takes precedence."},
@@ -337,4 +337,27 @@ func (f *FritzHome) exec(name string, data any) (template.HTML, error) {
 		return "", err
 	}
 	return template.HTML(buf.String()), nil
+}
+
+// Status implements system.Checker for the settings page.
+func (f *FritzHome) Status(ctx context.Context) []system.Check {
+	if !f.configured() {
+		return []system.Check{{Title: "FRITZ!Box login", Level: "warning",
+			Detail: "Enter a box user with the Smart Home permission and its password."}}
+	}
+	var out []system.Check
+	devices, err := f.devices(ctx)
+	if err != nil {
+		out = append(out, system.Check{Title: "FRITZ!Box login", Level: "danger", Detail: err.Error()})
+	} else {
+		out = append(out, system.Check{Title: "FRITZ!Box login", Level: "ok",
+			Detail: fmt.Sprintf("%s, %d smart home devices", f.cli.BaseURL, len(devices))})
+	}
+	if _, err := f.wanReading(ctx); err != nil {
+		out = append(out, system.Check{Title: "Internet traffic", Level: "warning",
+			Detail: "Turn on \"Transmit status information over UPnP\" in the box's network settings. " + err.Error()})
+	} else {
+		out = append(out, system.Check{Title: "Internet traffic", Level: "ok", Detail: "Read over UPnP"})
+	}
+	return out
 }

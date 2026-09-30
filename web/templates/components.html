@@ -62,7 +62,7 @@
 
 {{if .Unconfigured}}
   {{template "notice" (dict "Kind" "warning" "Title" "Prometheus is not configured"
-      "Body" "Set AD_CORE_PROMETHEUS_URL to draw this chart.")}}
+      "Body" "Enter its URL under Core on the settings page to draw this chart.")}}
 {{else}}
   <div class="box"><div id="armdash-chart"></div></div>
 

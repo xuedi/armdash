@@ -98,7 +98,7 @@ func TestWrongNameAndWrongPasswordLookTheSame(t *testing.T) {
 
 func TestFailedLoginsLockTheAddress(t *testing.T) {
 	s := newAuthServer(t)
-	s.login.limiter = auth.NewLimiter(2, time.Minute, time.Minute)
+	s.limiter = auth.NewLimiter(2, time.Minute, time.Minute)
 	do(s, loginRequest("owner", "wrong horse", "/"))
 	do(s, loginRequest("stranger", "correct horse", "/"))
 
@@ -204,8 +204,8 @@ func TestSettingsNeedALoginOnceOneIsConfigured(t *testing.T) {
 	}
 	c := sessionFrom(t, do(s, loginRequest("owner", "correct horse", "/")))
 	body := do(s, httptest.NewRequest(http.MethodGet, "/settings", nil), c).Body.String()
-	if !strings.Contains(body, "AD_CORE_AUTH_USER") || !strings.Contains(body, "owner") || !strings.Contains(body, redacted) {
-		t.Error("settings do not show the login")
+	if !strings.Contains(body, "owner") || !strings.Contains(body, "set in environment") {
+		t.Error("settings do not show the login and where it comes from")
 	}
 	if strings.Contains(body, testHash()) || strings.Contains(body, strings.Split(testHash(), ":")[3]) {
 		t.Error("settings show the password hash")

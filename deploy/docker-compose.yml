@@ -1,5 +1,6 @@
 # A Compose stack for hosts where containers are preferred over the packages.
-# The settings go in a .env next to this file, see ../.env.dist.
+# A .env next to this file is read too, see ../.env.dist; it may stay empty,
+# the rest is set up on the settings page and kept in the data volume.
 #
 # There is no FRITZ!Box exporter here: armdash polls the box itself and
 # publishes /metrics, so the credentials live in exactly one place.

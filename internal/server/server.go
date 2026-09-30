@@ -15,8 +15,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"armdash/internal/auth"
 	"armdash/internal/config"
 	"armdash/internal/links"
 	"armdash/internal/system"
@@ -55,69 +58,127 @@ func theme(r *http.Request) string {
 }
 
 type Server struct {
-	cfg     *config.Config
-	log     *slog.Logger
-	tmpl    *template.Template
+	cfg      *config.Config
+	log      *slog.Logger
+	tmpl     *template.Template
+	files    []string
+	sessions *auth.Sessions
+	limiter  *auth.Limiter
+	xorigin  *http.CrossOriginProtection
+
+	// saveMu serialises saving, so two forms submitted at once cannot each
+	// build a tree from half of the other's values.
+	saveMu sync.Mutex
+	cur    atomic.Pointer[tree]
+}
+
+// tree is everything built from the current settings: the routes, the links
+// and a fresh instance of every system. A save builds a new one and swaps it
+// in; requests already running finish on the old one. Sessions, the login
+// limiter and the templates live on the Server, outside it, so a save logs
+// nobody out.
+type tree struct {
+	*Server
 	mux     *http.ServeMux
-	files   []string
 	links   []links.Link
-	login   *login
-	xorigin *http.CrossOriginProtection
+	systems []system.System
 }
 
 func New(cfg *config.Config, log *slog.Logger, files []string) (*Server, error) {
-	ls, err := links.Parse(cfg)
-	if err != nil {
-		return nil, err
-	}
 	tmpl, err := template.New("").Funcs(system.FuncMap()).
 		ParseFS(web.Templates, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
-	lg, err := newLogin(cfg)
-	if err != nil {
+	if err := checkLogin(cfg); err != nil {
 		return nil, err
 	}
-	if lg == nil {
-		log.Info("no login configured, editing is off")
+	s := &Server{cfg: cfg, log: log, tmpl: tmpl, files: files,
+		sessions: auth.NewSessions(auth.SessionTTL),
+		limiter:  auth.NewLimiter(maxFailures, failWindow, lockFor),
+		xorigin:  http.NewCrossOriginProtection()}
+	if err := s.rebuild(); err != nil {
+		return nil, err
 	}
-	s := &Server{cfg: cfg, log: log, tmpl: tmpl, mux: http.NewServeMux(), files: files, links: ls,
-		login: lg, xorigin: http.NewCrossOriginProtection()}
-	s.routes()
+	switch {
+	case s.setupMode():
+		log.Info("no login yet, open /settings to create one")
+	case !s.hasLogin():
+		log.Info("no login and no data directory, editing is off")
+	}
 	return s, nil
 }
 
+// rebuild swaps in a tree built from the current settings, or keeps the old
+// one and reports why the new one could not be built.
+func (s *Server) rebuild() error {
+	ls, err := links.Parse(s.cfg)
+	if err != nil {
+		return err
+	}
+	t := &tree{Server: s, mux: http.NewServeMux(), links: ls, systems: system.New()}
+	t.routes()
+	s.cur.Store(t)
+	return nil
+}
+
+func (s *Server) tree() *tree { return s.cur.Load() }
+
+// setupExempt is what a visitor may still reach before the first login
+// exists: the setup form itself, its assets and the Prometheus scrape.
+func setupExempt(path string) bool {
+	return path == "/settings" || path == "/metrics" || strings.HasPrefix(path, "/settings/") ||
+		strings.HasPrefix(path, "/static/")
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, s.withSession(r))
+	if safeMethod(r.Method) && !setupExempt(r.URL.Path) && s.setupMode() {
+		http.Redirect(w, r, "/settings", http.StatusFound)
+		return
+	}
+	s.tree().mux.ServeHTTP(w, s.withSession(r))
 }
 
 // PromURL is handed to systems so they always read the current value rather
 // than a copy taken at startup.
 func (s *Server) PromURL() string { return s.cfg.Get(prometheusURLKey) }
 
-func (s *Server) routes() {
-	s.mux.Handle("GET /static/", http.FileServerFS(web.Static))
-	s.mux.HandleFunc("GET /{$}", s.handleRoot)
-	s.mux.HandleFunc("GET /settings", s.handleSettings)
-	s.mux.HandleFunc("GET /login", s.handleLoginPage)
-	s.mux.Handle("POST /login", s.xorigin.Handler(http.HandlerFunc(s.handleLogin)))
-	s.mux.Handle("POST /logout", s.xorigin.Handler(http.HandlerFunc(s.handleLogout)))
-	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
-	s.mux.HandleFunc("GET /s/{system}/{$}", s.handleSystemDefault)
-	s.mux.HandleFunc("GET /s/{system}/{slug}", s.handleSystemPage)
-	s.mux.HandleFunc("GET /l/{link}/{rest...}", s.handleLink)
+func (t *tree) routes() {
+	s := t.Server
+	t.mux.Handle("GET /static/", http.FileServerFS(web.Static))
+	t.mux.HandleFunc("GET /{$}", t.handleRoot)
+	t.mux.HandleFunc("GET /settings", t.handleSettings)
+	t.mux.HandleFunc("GET /settings/status", t.handleStatus)
+	for _, route := range []struct {
+		path string
+		h    http.HandlerFunc
+	}{
+		{"POST /settings/setup", t.handleSetup},
+		{"POST /settings/login", t.handleChangeLogin},
+		{"POST /settings/core", t.handleSaveCore},
+		{"POST /settings/system/{id}", t.handleSaveSystem},
+		{"POST /settings/links", t.handleSaveLinks},
+		{"POST /login", t.handleLogin},
+		{"POST /logout", t.handleLogout},
+	} {
+		t.mux.Handle(route.path, s.xorigin.Handler(route.h))
+	}
+	t.mux.HandleFunc("GET /login", t.handleLoginPage)
+	t.mux.HandleFunc("GET /metrics", t.handleMetrics)
+	t.mux.HandleFunc("GET /s/{system}/{$}", t.handleSystemDefault)
+	t.mux.HandleFunc("GET /s/{system}/{slug}", t.handleSystemPage)
+	t.mux.HandleFunc("GET /l/{link}/{rest...}", t.handleLink)
 
 	// Every method, not only GET: saving a wiki page is a POST.
-	for _, l := range s.links {
+	for _, l := range t.links {
 		if l.Mode == links.ModeProxy {
-			s.mux.Handle(l.Prefix()+"/", l.Handler(s.log.With("link", l.ID)))
+			t.mux.Handle(l.Prefix()+"/", l.Handler(s.log.With("link", l.ID)))
 		}
 	}
 
 	// Each system gets its own subtree for fragments and JSON.
 	dataDir := DataDir(s.cfg)
-	for _, sys := range system.All() {
+	for _, sys := range t.systems {
 		prefix := "/s/" + sys.ID() + "/api/"
 		deps := system.Deps{
 			Config:  s.cfg.Scoped(sys.ID()),
@@ -129,7 +190,7 @@ func (s *Server) routes() {
 		}
 		api := http.NewServeMux()
 		sys.Register(api, prefix, deps)
-		s.mux.Handle(prefix, s.api(sys.ID(), api))
+		t.mux.Handle(prefix, s.api(sys.ID(), api))
 	}
 }
 
@@ -142,9 +203,9 @@ func (s *Server) api(id string, h http.Handler) http.Handler {
 	protected := s.xorigin.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case safeMethod(r.Method):
-		case s.login == nil:
+		case !s.hasLogin():
 			s.refuse(w, r, http.StatusForbidden, "Editing is off",
-				"No login is configured, see "+config.EnvName(authUserKey)+".")
+				"No login exists yet, create one on the settings page.")
 			return
 		case !system.CanEdit(r):
 			s.refuse(w, r, http.StatusUnauthorized, "Not logged in", "Log in to make changes.")
@@ -173,18 +234,18 @@ func DataDir(cfg *config.Config) string {
 }
 
 // enabled returns the systems that should be visible right now.
-func (s *Server) enabled() []system.System {
+func (t *tree) enabled() []system.System {
 	var out []system.System
-	for _, sys := range system.All() {
-		if s.cfg.Enabled(sys.ID()) {
+	for _, sys := range t.systems {
+		if t.cfg.Enabled(sys.ID()) {
 			out = append(out, sys)
 		}
 	}
 	return out
 }
 
-func (s *Server) find(id string) system.System {
-	for _, sys := range s.enabled() {
+func (t *tree) find(id string) system.System {
+	for _, sys := range t.enabled() {
 		if sys.ID() == id {
 			return sys
 		}
@@ -192,12 +253,12 @@ func (s *Server) find(id string) system.System {
 	return nil
 }
 
-func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
-	if en := s.enabled(); len(en) > 0 {
+func (t *tree) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if en := t.enabled(); len(en) > 0 {
 		http.Redirect(w, r, "/s/"+en[0].ID()+"/", http.StatusFound)
 		return
 	}
-	for _, l := range s.links {
+	for _, l := range t.links {
 		if l.Mode != links.ModeTab {
 			http.Redirect(w, r, l.Page(), http.StatusFound)
 			return
@@ -207,17 +268,17 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/settings", http.StatusFound)
 }
 
-func (s *Server) findLink(id string) *links.Link {
-	for i := range s.links {
-		if s.links[i].ID == id {
-			return &s.links[i]
+func (t *tree) findLink(id string) *links.Link {
+	for i := range t.links {
+		if t.links[i].ID == id {
+			return &t.links[i]
 		}
 	}
 	return nil
 }
 
-func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
-	l := s.findLink(r.PathValue("link"))
+func (t *tree) handleLink(w http.ResponseWriter, r *http.Request) {
+	l := t.findLink(r.PathValue("link"))
 	if l == nil || l.Mode == links.ModeTab {
 		http.NotFound(w, r)
 		return
@@ -230,7 +291,7 @@ func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d := s.layout(r, nil, "")
+	d := t.layout(r, nil, "")
 	for i := range d.Top {
 		d.Top[i].Active = d.Top[i].Href == l.Page()
 	}
@@ -239,11 +300,11 @@ func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
 	if l.Mode == links.ModeProxy {
 		d.FrameFrom, d.FrameTo = l.Prefix()+"/", l.Page()
 	}
-	s.render(w, d)
+	t.render(w, d)
 }
 
-func (s *Server) handleSystemDefault(w http.ResponseWriter, r *http.Request) {
-	sys := s.find(r.PathValue("system"))
+func (t *tree) handleSystemDefault(w http.ResponseWriter, r *http.Request) {
+	sys := t.find(r.PathValue("system"))
 	if sys == nil {
 		http.NotFound(w, r)
 		return
@@ -256,8 +317,8 @@ func (s *Server) handleSystemDefault(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/s/"+sys.ID()+"/"+nav[0].Slug, http.StatusFound)
 }
 
-func (s *Server) handleSystemPage(w http.ResponseWriter, r *http.Request) {
-	sys := s.find(r.PathValue("system"))
+func (t *tree) handleSystemPage(w http.ResponseWriter, r *http.Request) {
+	sys := t.find(r.PathValue("system"))
 	if sys == nil {
 		http.NotFound(w, r)
 		return
@@ -276,16 +337,16 @@ func (s *Server) handleSystemPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := s.layout(r, sys, slug)
+	data := t.layout(r, sys, slug)
 	body, err := sys.Render(slug, r)
 	if err != nil {
 		// Render the shell anyway: a broken page should not cost the user
 		// their navigation, and the error belongs on screen, not only in logs.
-		s.log.Error("system render failed", "system", sys.ID(), "slug", slug, "err", err)
+		t.log.Error("system render failed", "system", sys.ID(), "slug", slug, "err", err)
 		data.Error = err.Error()
 	}
 	data.Body = body
-	s.render(w, data)
+	t.render(w, data)
 }
 
 type navLink struct {
@@ -319,19 +380,19 @@ type layoutData struct {
 	Frame, FrameFrom, FrameTo string
 }
 
-func (s *Server) layout(r *http.Request, active system.System, slug string) layoutData {
+func (t *tree) layout(r *http.Request, active system.System, slug string) layoutData {
 	d := layoutData{
 		Version:  version.Version,
 		Theme:    theme(r),
-		Login:    s.login != nil,
+		Login:    t.hasLogin(),
 		LoggedIn: system.CanEdit(r),
 		Here:     r.URL.RequestURI(),
 	}
-	for _, sys := range s.enabled() {
+	for _, sys := range t.enabled() {
 		isActive := active != nil && sys.ID() == active.ID()
 		d.Top = append(d.Top, topLink{Href: "/s/" + sys.ID() + "/", Title: sys.Title(), Active: isActive})
 	}
-	for _, l := range s.links {
+	for _, l := range t.links {
 		d.Top = append(d.Top, topLink{Href: l.Href(), Title: l.Title, NewTab: l.Mode == links.ModeTab})
 	}
 	if active == nil {
@@ -364,160 +425,6 @@ func (s *Server) renderCode(w http.ResponseWriter, code int, d layoutData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
 	_, _ = buf.WriteTo(w)
-}
-
-// ---- settings -------------------------------------------------------------
-//
-// Read-only. Configuration comes from .env files and the environment, so this
-// page reports what is in effect and where each value came from. There is no
-// form to submit. It still names hosts and users, so once a login is
-// configured it is only shown to whoever is logged in.
-
-type settingsField struct {
-	Label, Help string
-	EnvName     string
-	Value       string
-	Source      string
-	Set         bool
-}
-
-type settingsSystem struct {
-	ID, Title string
-	Enabled   bool
-	EnvName   string
-	Fields    []settingsField
-}
-
-type settingsLink struct {
-	Title, Mode string
-	Fields      []settingsField
-}
-
-type settingsData struct {
-	Core    []settingsField
-	Systems []settingsSystem
-	Links   []settingsLink
-	Files   []string
-	Theme   string
-}
-
-const redacted = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
-
-// field shows unset as the grey placeholder when one is given, otherwise as the
-// "not set" warning.
-func (s *Server) field(key, label, help, unset string) settingsField {
-	v := s.cfg.Get(key)
-	f := settingsField{
-		Label:   label,
-		Help:    help,
-		EnvName: config.EnvName(key),
-		Value:   v,
-		Source:  s.cfg.Source(key),
-		Set:     v != "",
-	}
-	if !f.Set {
-		f.Value = unset
-	}
-	return f
-}
-
-func (s *Server) settingsData() settingsData {
-	dataUnset := "uploads and editing are off"
-	if dir := DataDir(s.cfg); dir != "" {
-		dataUnset = dir + "  (systemd)"
-	}
-	hash := s.field(authHashKey, "Password hash",
-		"Only whether it is set is shown. armdash passwd prints a new one.", "no login, editing is off")
-	if hash.Set {
-		hash.Value = redacted
-	}
-	d := settingsData{
-		Files: s.files,
-		Core: []settingsField{
-			s.field(authUserKey, "Login",
-				"The one user who may upload a floor plan, place devices and open this page.", "no login, editing is off"),
-			hash,
-			s.field(prometheusURLKey, "Prometheus URL",
-				"Every metric on every page is read from here.", ""),
-			s.field(tlsCertKey, "TLS certificate",
-				"HTTPS is on when both the certificate and the key are set.", "HTTPS is off"),
-			s.field(tlsKeyKey, "TLS key",
-				"Readable by the service user and root, nobody else.", "HTTPS is off"),
-			s.field(dataDirKey, "Data directory",
-				"Uploaded floor plans and device positions. Falls back to systemd's StateDirectory.", dataUnset),
-			s.field(links.ListKey, "Navbar links",
-				"IDs of the extra navbar entries, in order. Each needs its own URL.", "none"),
-		},
-	}
-	for _, l := range s.links {
-		var urlHelp string
-		switch l.Mode {
-		case links.ModeProxy:
-			urlHelp = "Forwarded from " + l.Prefix() + "/, so the site must generate its links under that path."
-		case links.ModeFrame:
-			urlHelp = "Loaded by the browser, so it must be reachable from the browser."
-		case links.ModeTab:
-			urlHelp = "Opened in a new tab."
-		}
-		d.Links = append(d.Links, settingsLink{
-			Title: l.Title,
-			Mode:  string(l.Mode),
-			Fields: []settingsField{
-				s.field(links.Key(l.ID, "url"), "URL", urlHelp, ""),
-				s.field(links.Key(l.ID, "title"), "Title", "The navbar label.", l.ID+"  (default)"),
-				s.field(links.Key(l.ID, "mode"), "Mode", "frame, proxy or tab.", string(links.ModeFrame)+"  (default)"),
-			},
-		})
-	}
-	for _, sys := range system.All() {
-		enabledKey := "system." + sys.ID() + ".enabled"
-		ss := settingsSystem{
-			ID:      sys.ID(),
-			Title:   sys.Title(),
-			Enabled: s.cfg.Enabled(sys.ID()),
-			EnvName: config.EnvName(enabledKey),
-		}
-		scope := s.cfg.Scoped(sys.ID())
-		for _, f := range sys.ConfigSchema() {
-			val := scope.Get(f.Key)
-			set := val != ""
-			if f.Secret && set {
-				val = redacted
-			}
-			if !set && f.Default != "" {
-				val = f.Default + "  (default)"
-			}
-			ss.Fields = append(ss.Fields, settingsField{
-				Label:   f.Label,
-				Help:    f.Help,
-				EnvName: scope.EnvName(f.Key),
-				Value:   val,
-				Source:  scope.Source(f.Key),
-				Set:     set,
-			})
-		}
-		d.Systems = append(d.Systems, ss)
-	}
-	return d
-}
-
-func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
-	if s.requireLogin(w, r) {
-		return
-	}
-	sd := s.settingsData()
-	sd.Theme = theme(r)
-	var body bytes.Buffer
-	if err := s.tmpl.ExecuteTemplate(&body, "settings", sd); err != nil {
-		s.log.Error("settings render failed", "err", err)
-		http.Error(w, "template error", http.StatusInternalServerError)
-		return
-	}
-	d := s.layout(r, nil, "")
-	d.PageTitle = "Settings"
-	d.SettingsActive = true
-	d.Body = template.HTML(body.String())
-	s.render(w, d)
 }
 
 // contextWithTimeout keeps the metrics handler readable.

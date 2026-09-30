@@ -15,12 +15,12 @@ import (
 // enabled system that collects. Written by hand rather than pulling in
 // client_golang: the output is a few hundred lines of text and the dependency
 // would be larger than the whole application.
-func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+func (t *tree) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := contextWithTimeout(r, 25*time.Second)
 	defer cancel()
 
 	var all []system.Metric
-	for _, sys := range s.enabled() {
+	for _, sys := range t.enabled() {
 		c, ok := sys.(system.Collector)
 		if !ok {
 			continue
@@ -30,7 +30,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 			// Report the failure as a metric rather than failing the scrape:
 			// Prometheus then records that the collector is down instead of
 			// simply having a gap.
-			s.log.Error("collect failed", "system", sys.ID(), "err", err)
+			t.log.Error("collect failed", "system", sys.ID(), "err", err)
 			all = append(all, system.Metric{
 				Name: "armdash_collector_up", Type: "gauge",
 				Help:   "1 when the system's last collection succeeded",

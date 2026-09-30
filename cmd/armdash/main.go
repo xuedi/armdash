@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,7 +31,10 @@ import (
 // is a config decision, see internal/system. The order is written here rather
 // than left to each package's own init, which Go runs in an order the source
 // does not show.
-var systems = []system.System{&host.Host{}, &fritzhome.FritzHome{}}
+var systems = []func() system.System{
+	func() system.System { return &host.Host{} },
+	func() system.System { return &fritzhome.FritzHome{} },
+}
 
 func init() {
 	for _, s := range systems {
@@ -73,6 +77,15 @@ func main() {
 	if err != nil {
 		log.Error("loading config", "err", err)
 		os.Exit(1)
+	}
+
+	// Settings saved on the page live in the data directory. Without one the
+	// page shows them read-only, as the env files have them.
+	if dir := server.DataDir(cfg); dir != "" {
+		if err := cfg.UseStore(filepath.Join(dir, "settings.json")); err != nil {
+			log.Error("loading saved settings", "err", err)
+			os.Exit(1)
+		}
 	}
 
 	// The flag wins when given, so a one-off override still works, but a packaged

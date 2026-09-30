@@ -38,7 +38,7 @@ func (s *Server) PlainHandler(tlsAddr string) http.Handler {
 		port = "443"
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /metrics", s.handleMetrics)
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) { s.tree().handleMetrics(w, r) })
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		if h, _, err := net.SplitHostPort(host); err == nil {

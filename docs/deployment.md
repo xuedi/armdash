@@ -88,12 +88,11 @@ The packages bring Prometheus and node_exporter along. On Debian and Fedora they
 *recommends*, which apt and dnf install by default and which someone with Prometheus on another
 host can decline. The Arch format has no weak dependency, so there they are hard dependencies.
 
-The post-install creates the `armdash` system user, seeds the configuration only when there is
-not one already (an upgrade must never drop credentials) and leaves the unit disabled, because a
-dashboard with no FRITZ!Box credentials and no Prometheus address is not worth starting. It then
-prints the steps still missing, among them `armdash passwd`, which prints the owner login for the
-env file, see [authentication.md](authentication.md). Without it the dashboard runs, but nothing
-can be changed.
+The post-install creates the `armdash` system user, seeds the env file only when there is not one
+already (an upgrade must never drop an operator's settings) and leaves the unit disabled, as
+packages do. The seeded file holds only the listen address and the commented HTTPS lines. It then
+prints the steps still missing, ending with the address to open: the first visit creates the login
+and the rest is set up on the settings page, see [install.md](install.md#setting-it-up-in-the-browser).
 
 To know which Prometheus steps are missing, the post-install reads the local setup: whether a
 scrape job covers armdash's port and node_exporter, whether a retention is set, whether the
@@ -108,9 +107,10 @@ to `/usr/local/bin`, creates the user, seeds the env file when there is none and
 with its `ExecStart` pointed there, disabled. It needs sudo, and it installs no Prometheus.
 
 The unit is hardened further than most, and can be, because **the app writes almost nothing**.
-Configuration is read-only by design and every metric lives in Prometheus. The one writable path is
-`/var/lib/armdash`, from `StateDirectory=`, where an uploaded floor plan and device positions
-are kept (see [floorplan.md](floorplan.md)). `ProtectSystem=strict` keeps everything else read-only.
+Every metric lives in Prometheus. The one writable path is `/var/lib/armdash`, from
+`StateDirectory=`, where the saved settings, an uploaded floor plan and device positions are kept
+(see [configuration.md](configuration.md) and [floorplan.md](floorplan.md)). `ProtectSystem=strict`
+keeps everything else read-only, the env file included.
 The one capability granted is `CAP_NET_BIND_SERVICE`, which is what lets an unprivileged process
 answer on ports 80 and 443.
 
@@ -118,14 +118,15 @@ answer on ports 80 and 443.
 does not, and until the unit is updated (and `systemctl daemon-reload` run) the floor plan page
 simply offers no upload and no edit mode.
 
-The login arrived in 0.11.0. An upgrade from an earlier version keeps every page, but loses Upload
-and Edit until `AD_CORE_AUTH_USER` and `AD_CORE_AUTH_PASSWORD_HASH` are in the env file.
+The settings page became editable in 0.17.0. An install from before keeps its env file, whose
+values win over the page and show there as locked; nothing changes until a line is deleted from it.
 
 ## Configuration on a server
 
-Everything is in `/etc/armdash/armdash.env`, in the same `AD_` variables the development
-`.env.local` uses. `AD_CORE_ADDR` decides the port, so moving the dashboard to another port is an
-edit and a restart, not a rebuild. See [configuration.md](configuration.md).
+`/etc/armdash/armdash.env` holds the bootstrap keys: `AD_CORE_ADDR` decides the port, so moving the
+dashboard to another port is an edit and a restart, not a rebuild, and the `AD_CORE_TLS_` keys turn
+on HTTPS. Everything else is saved from the settings page into `/var/lib/armdash/settings.json`,
+and any `AD_` variable in the env file still wins over it. See [configuration.md](configuration.md).
 
 The committed defaults stay on high loopback ports, `127.0.0.1:9494` and `127.0.0.1:9495` for
 HTTPS, so a development checkout never collides with anything else on the machine. Ports 80 and
