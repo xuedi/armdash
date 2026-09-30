@@ -28,13 +28,17 @@
 </div>
 {{end}}
 
-{{/* stat-card expects: .Label .Display .Sub .OK */}}
+{{/* stat-card expects: .Label .Display .Sub .OK
+
+     The sub line is always there, empty or not, and the box fills its cell,
+     so a row of cards is one height even when only some carry a note or a
+     label wraps on a phone. */}}
 {{define "stat-card"}}
 <div class="cell">
-  <div class="box has-text-centered">
+  <div class="box has-text-centered" style="height: 100%">
     <p class="heading">{{.Label}}</p>
-    <p class="title is-4">{{if .OK}}{{.Display}}{{else}}<span class="has-text-grey-light">n/a</span>{{end}}</p>
-    {{if and .OK .Sub}}<p class="is-size-7 has-text-grey">{{.Sub}}</p>{{end}}
+    <p class="title is-4 mb-2">{{if .OK}}{{.Display}}{{else}}<span class="has-text-grey-light">n/a</span>{{end}}</p>
+    <p class="is-size-7 has-text-grey">{{if and .OK .Sub}}{{.Sub}}{{else}}&nbsp;{{end}}</p>
   </div>
 </div>
 {{end}}

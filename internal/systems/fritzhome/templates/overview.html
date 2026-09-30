@@ -15,6 +15,12 @@
   .fh-bar { display: flex; gap: 2px; height: 1.5rem; border-radius: var(--bulma-radius);
             overflow: hidden; background: var(--bulma-scheme-main-ter); }
   .fh-seg { min-width: 2px; }
+  /* A tile fills its cell, so one with a second line of text does not
+     leave its row ragged. */
+  .fh-tile { height: 100%; }
+  /* Bulma's auto-fit grid: as many columns as have room, at least 9rem
+     each, stretched across the row. Up to six across on a desktop, two on a
+     phone, and a seventh tile starts a new row rather than squeezing in. */
   .fh-swatch { display: inline-block; width: .75rem; height: .75rem; border-radius: 2px;
                vertical-align: middle; }
   .fh-c0 { background: #2a78d6; } .fh-c1 { background: #eb6834; } .fh-c2 { background: #1baf7a; }
@@ -46,10 +52,8 @@
   <div class="notification is-danger"><strong>Could not reach the FRITZ!Box.</strong><br>{{.Err}}</div>
 {{else}}
 
-<div class="fixed-grid has-2-cols-mobile has-3-cols-tablet has-5-cols-desktop">
-  <div class="grid">
-    {{range .KPIs}}{{template "stat-card" .}}{{end}}
-  </div>
+<div class="grid is-col-min-6">
+  {{range .KPIs}}{{template "stat-card" .}}{{end}}
 </div>
 
 {{if .Attention}}
@@ -88,72 +92,67 @@
 
 {{if .Switches}}
 <h2 class="title is-6 mt-5 mb-3">Switches and lights</h2>
-<div class="fixed-grid has-2-cols-mobile has-3-cols-tablet has-4-cols-desktop">
-  <div class="grid">
-    {{range .Switches}}
-    <div class="cell">
-      <div class="box">
-        <div class="level is-mobile mb-1">
-          <div class="level-left"><strong>{{.Name}}</strong></div>
-          <div class="level-right">
-            {{if .Absent}}<span class="tag is-warning">unreachable</span>
-            {{else if .On}}<span class="tag is-primary is-light">on</span>
-            {{else}}<span class="tag">off</span>{{end}}
-          </div>
+<div class="grid is-col-min-6">
+  {{range .Switches}}
+  <div class="cell">
+    <div class="box fh-tile">
+      <div class="level is-mobile mb-1">
+        <div class="level-left"><strong>{{.Name}}</strong></div>
+        <div class="level-right">
+          {{if .Absent}}<span class="tag is-warning">unreachable</span>
+          {{else if .On}}<span class="tag is-primary is-light">on</span>
+          {{else}}<span class="tag">off</span>{{end}}
         </div>
-        <p class="is-size-7 has-text-grey">{{if .Light}}Light{{else}}Plug{{end}}{{if .Detail}}, {{.Detail}}{{end}}</p>
       </div>
+      <p class="is-size-7 has-text-grey">{{if .Light}}Light{{else}}Plug{{end}}{{if .Detail}}, {{.Detail}}{{end}}</p>
     </div>
-    {{end}}
   </div>
+  {{end}}
 </div>
 {{end}}
 
 {{if .Contacts}}
 <h2 class="title is-6 mt-5 mb-3">Doors and windows</h2>
-<div class="fixed-grid has-2-cols-mobile has-3-cols-tablet has-4-cols-desktop">
-  <div class="grid">
-    {{range .Contacts}}
-    <div class="cell">
-      <div class="box">
-        <div class="level is-mobile mb-1">
-          <div class="level-left"><strong>{{.Name}}</strong></div>
-          <div class="level-right">
-            {{if .Absent}}<span class="tag is-warning">unreachable</span>
-            {{else if .Open}}<span class="tag is-warning">open</span>
-            {{else}}<span class="tag is-success is-light">closed</span>{{end}}
-          </div>
+<div class="grid is-col-min-6">
+  {{range .Contacts}}
+  <div class="cell">
+    <div class="box fh-tile">
+      <div class="level is-mobile mb-1">
+        <div class="level-left"><strong>{{.Name}}</strong></div>
+        <div class="level-right">
+          {{if .Absent}}<span class="tag is-warning">unreachable</span>
+          {{else if .Open}}<span class="tag is-warning">open</span>
+          {{else}}<span class="tag is-success is-light">closed</span>{{end}}
         </div>
-        <p class="is-size-7 has-text-grey">{{if .Door}}Door{{else}}Window{{end}}{{if .Since}}, {{.Since}}{{end}}</p>
       </div>
+      <p class="is-size-7 has-text-grey">{{if .Door}}Door{{else}}Window{{end}}{{if .Since}}, {{.Since}}{{end}}</p>
     </div>
-    {{end}}
   </div>
+  {{end}}
 </div>
 {{end}}
 
 {{if .Climate}}
 <h2 class="title is-6 mt-5 mb-3">Climate</h2>
-<div class="fixed-grid has-1-cols-mobile has-2-cols-tablet has-4-cols-desktop">
-  <div class="grid">
-    {{range .Climate}}
-    <div class="cell">
-      <div class="box">
-        <div class="level is-mobile mb-1">
-          <div class="level-left"><strong>{{.Name}}</strong></div>
-          <div class="level-right">
-            {{if .Absent}}<span class="tag is-warning">unreachable</span>
-            {{else if .Heating}}<span class="tag is-danger is-light">heating</span>{{end}}
-            {{range .Flags}}<span class="tag is-info is-light ml-1">{{.}}</span>{{end}}
-          </div>
+<div class="grid is-col-min-6">
+  {{range .Climate}}
+  <div class="cell">
+    <div class="box fh-tile">
+      <div class="level is-mobile mb-1">
+        <div class="level-left"><strong>{{.Name}}</strong></div>
+        <div class="level-right">
+          {{if .Absent}}<span class="tag is-warning">unreachable</span>
+          {{else if .Heating}}<span class="tag is-danger is-light">heating</span>{{end}}
+          {{range .Flags}}<span class="tag is-info is-light ml-1">{{.}}</span>{{end}}
         </div>
-        {{if .Temp}}<p class="title is-4 mb-1">{{.Temp}}</p>{{end}}
-        {{if .Humidity}}<p class="is-size-7 has-text-grey">{{.Humidity}}</p>{{end}}
-        {{if .Target}}<p class="is-size-7 has-text-grey">{{.Target}}{{if .Next}}, {{.Next}}{{end}}</p>{{end}}
       </div>
+      {{if .Temp}}<p class="title is-4 mb-1">{{.Temp}}</p>{{end}}
+      {{if .Humidity}}<p class="is-size-7 has-text-grey">{{.Humidity}}</p>{{end}}
+      {{if .AtPlug}}<p class="is-size-7 has-text-grey">at the plug</p>{{end}}
+      {{if .Target}}<p class="is-size-7 has-text-grey">{{.Target}}{{if .Next}}, {{.Next}}{{end}}</p>{{end}}
     </div>
-    {{end}}
   </div>
+  {{end}}
 </div>
 {{end}}
 

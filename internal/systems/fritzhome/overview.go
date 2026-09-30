@@ -58,6 +58,7 @@ type contactTile struct {
 
 type climateTile struct {
 	Name, Temp, Humidity string
+	AtPlug               bool
 	Target, Next         string
 	Heating              bool
 	Flags                []string
@@ -130,18 +131,21 @@ func buildOverview(devices []fritzbox.Device, energyToday map[string]float64, no
 			}
 			m.Contacts = append(m.Contacts, t)
 		}
-		// A plug's thermometer sits next to its own relay and reads warm, so
-		// only real sensors and thermostats describe the room.
-		if !isPlug(d) && (d.TempC != nil || d.HumidityP != nil || d.Thermostat != nil) {
+		if d.TempC != nil || d.HumidityP != nil || d.Thermostat != nil {
 			m.Climate = append(m.Climate, climateOf(d, now))
 		}
 	}
+	// A plug's thermometer sits next to its own relay and reads warm, so the
+	// real sensors come first and the plugs say where they measure.
+	slices.SortStableFunc(m.Climate, func(a, b climateTile) int {
+		return cmp.Compare(boolRank(a.AtPlug), boolRank(b.AtPlug))
+	})
 	// Open first: that is the one to look at.
 	slices.SortStableFunc(m.Contacts, func(a, b contactTile) int {
 		return cmp.Compare(boolRank(b.Open), boolRank(a.Open))
 	})
 
-	if k, ok := contactsKPI(m.Contacts); ok {
+	if k, ok := contactsKPI(devices, now); ok {
 		m.KPIs = append(m.KPIs, k)
 	}
 	if k, ok := climateKPI(devices); ok {
@@ -149,9 +153,10 @@ func buildOverview(devices []fritzbox.Device, energyToday map[string]float64, no
 	}
 
 	m.Attention = attention(devices, now)
-	k := kpi{Label: "Attention", OK: true, Display: "All fine"}
+	k := kpi{Label: "Attention", OK: true, Display: "All fine", Sub: batteryOutlook(devices)}
 	if n := len(m.Attention); n > 0 {
 		k.Display = fmt.Sprintf("%d %s", n, plural(n, "issue", "issues"))
+		k.Sub = "listed below"
 	}
 	m.KPIs = append(m.KPIs, k)
 
@@ -275,22 +280,50 @@ func energyKPI(devices []fritzbox.Device, meter *fritzbox.Device, today map[stri
 	return k
 }
 
-func contactsKPI(contacts []contactTile) (kpi, bool) {
-	if len(contacts) == 0 {
+func contactsKPI(devices []fritzbox.Device, now time.Time) (kpi, bool) {
+	var open []string
+	var last time.Time
+	n := 0
+	for _, d := range devices {
+		c := d.Contact
+		if c == nil {
+			continue
+		}
+		n++
+		if c.Open {
+			open = append(open, d.Name)
+		}
+		if c.Since.After(last) {
+			last = c.Since
+		}
+	}
+	if n == 0 {
 		return kpi{}, false
 	}
 	k := kpi{Label: "Doors and windows", OK: true, Display: "All closed"}
-	var open []string
-	for _, c := range contacts {
-		if c.Open {
-			open = append(open, c.Name)
-		}
+	if !last.IsZero() {
+		k.Sub = "last change " + ago(last, now)
 	}
 	if len(open) > 0 {
 		k.Display = fmt.Sprintf("%d open", len(open))
 		k.Sub = strings.Join(open, ", ")
 	}
 	return k, true
+}
+
+// batteryOutlook names the battery that runs out first, which is the next
+// thing likely to need attention when nothing does yet.
+func batteryOutlook(devices []fritzbox.Device) string {
+	var low *fritzbox.Device
+	for i, d := range devices {
+		if d.BatteryPct != nil && (low == nil || *d.BatteryPct < *low.BatteryPct) {
+			low = &devices[i]
+		}
+	}
+	if low == nil {
+		return ""
+	}
+	return fmt.Sprintf("lowest battery: %s %.0f %%", low.Name, *low.BatteryPct)
 }
 
 func climateKPI(devices []fritzbox.Device) (kpi, bool) {
@@ -323,7 +356,7 @@ func climateKPI(devices []fritzbox.Device) (kpi, bool) {
 }
 
 func climateOf(d fritzbox.Device, now time.Time) climateTile {
-	t := climateTile{Name: d.Name, Absent: !d.Present}
+	t := climateTile{Name: d.Name, Absent: !d.Present, AtPlug: isPlug(d)}
 	if d.TempC != nil {
 		t.Temp = degrees(*d.TempC)
 	}
@@ -393,6 +426,23 @@ func when(t, now time.Time) string {
 		return t.Format("Mon 15:04")
 	default:
 		return t.Format("2 Jan")
+	}
+}
+
+// ago is how long before now, rounded the way it would be said.
+func ago(t, now time.Time) string {
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		n := int(d / time.Minute)
+		return fmt.Sprintf("%d %s ago", n, plural(n, "minute", "minutes"))
+	case d < 48*time.Hour:
+		n := int(d / time.Hour)
+		return fmt.Sprintf("%d %s ago", n, plural(n, "hour", "hours"))
+	default:
+		return fmt.Sprintf("%d days ago", int(d/(24*time.Hour)))
 	}
 }
 

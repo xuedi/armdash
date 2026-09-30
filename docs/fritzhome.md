@@ -13,6 +13,21 @@ does not poll.
 Every section appears only when a device for it exists. A box without door sensors shows no empty
 "Doors and windows" box.
 
+Tiles sit in Bulma's auto-fit grid: as many columns as have room at 9rem or more each, stretched
+across the row. That is up to six across on a desktop and two on a phone; a seventh tile starts a
+second row. Every tile and headline card fills its cell, so a row stays one height when one of them
+carries an extra line.
+
+Each headline card has a grey note under its value, so none of them is shorter than the rest:
+
+| Card | Note |
+|---|---|
+| Power now | how many plugs, or the meter it comes from |
+| Energy today | whole flat or plugs, since midnight |
+| Doors and windows | how long since the last door or window changed, or which are open |
+| Indoors | the humidity |
+| Attention | the battery that runs out first, the next thing likely to need a look |
+
 | Section | Shows |
 |---|---|
 | Headline row | power now, energy today, doors and windows, indoor temperature and humidity, the attention count |
@@ -20,7 +35,7 @@ Every section appears only when a device for it exists. A box without door senso
 | Where the power goes | one bar split by device, with a table of every plug, its watts and its share |
 | Switches and lights | a tile per plug, bulb or other switch: on or off, watts or brightness |
 | Doors and windows | a tile per contact, open ones first, with the time of the last change |
-| Climate | a tile per temperature sensor and thermostat |
+| Climate | a tile per sensor and thermostat, then one per plug with a thermometer |
 | Devices | name, model, firmware, whether the box reaches it, battery |
 
 ## The power bar
@@ -48,9 +63,9 @@ the plugs. Without Prometheus, or in the day's first minute, the card says n/a.
 
 ## Climate
 
-Only sensors and thermostats describe a room. A plug has a thermometer too, but it sits next to its
-own relay and reads warm, so plugs stay out of the climate tiles and the indoor range. They still
-appear on the Temperatures chart.
+A plug has a thermometer too, but it sits next to its own relay and reads warm. Plugs therefore
+come after the real sensors, marked "at the plug", and stay out of the indoor range in the headline
+row.
 
 A thermostat tile adds its setpoint, "heating" when the setpoint is above the measured temperature,
 window-open and boost when active, and the next scheduled change ("16.0 °C from 22:00"). The box's

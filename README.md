@@ -1,6 +1,6 @@
 # armdash
 
-![version](https://img.shields.io/badge/version-0.16.0-blue)
+![version](https://img.shields.io/badge/version-0.16.1-blue)
 ![licence](https://img.shields.io/badge/licence-EUPL--1.2-brightgreen)
 
 A single-binary web dashboard for a home server. One tab per *system*: server

@@ -159,17 +159,49 @@ func TestThermostatTile(t *testing.T) {
 	}
 }
 
-// A plug's thermometer reads its own relay, not the room.
-func TestPlugsAreNotClimate(t *testing.T) {
+// A plug's thermometer reads its own relay: it gets a tile, after the real
+// sensors, but it does not speak for the room.
+func TestPlugsComeLastInClimateAndStayOutOfIndoors(t *testing.T) {
 	p := plugW("a", "Server", 70)
 	p.TempC = f64(25.5)
-	m := buildOverview([]fritzbox.Device{p}, nil, noon)
-	if len(m.Climate) != 0 {
-		t.Errorf("a plug became a climate tile: %+v", m.Climate)
+	sensor := fritzbox.Device{AIN: "z", Name: "Living room", Present: true, TempC: f64(21)}
+	m := buildOverview([]fritzbox.Device{p, sensor}, nil, noon)
+	if len(m.Climate) != 2 || m.Climate[0].Name != "Living room" || !m.Climate[1].AtPlug {
+		t.Errorf("climate = %+v, want the sensor first and the plug marked", m.Climate)
 	}
 	for _, k := range m.KPIs {
-		if k.Label == "Indoors" {
-			t.Error("a plug's temperature made the indoor KPI")
+		if k.Label == "Indoors" && k.Display != "21.0 °C" {
+			t.Errorf("indoors = %s, want the plug left out", k.Display)
+		}
+	}
+}
+
+func TestQuietCardsStillSaySomething(t *testing.T) {
+	devices := []fritzbox.Device{
+		{AIN: "1", Name: "Door", Present: true, Contact: &fritzbox.Contact{Since: noon.Add(-6 * time.Hour)}},
+		{AIN: "2", Name: "Balcony", Present: true, Contact: &fritzbox.Contact{Since: noon.Add(-30 * time.Hour)}},
+		{AIN: "3", Name: "Radiator", Present: true, BatteryPct: f64(40), BatteryLow: no()},
+		{AIN: "4", Name: "Sensor", Present: true, BatteryPct: f64(90), BatteryLow: no()},
+	}
+	subs := map[string]string{}
+	for _, k := range buildOverview(devices, nil, noon).KPIs {
+		subs[k.Label] = k.Sub
+	}
+	if got := subs["Doors and windows"]; got != "last change 6 hours ago" {
+		t.Errorf("doors and windows sub = %q", got)
+	}
+	if got := subs["Attention"]; got != "lowest battery: Radiator 40 %" {
+		t.Errorf("attention sub = %q", got)
+	}
+}
+
+func TestAgo(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		30 * time.Second: "just now", time.Minute: "1 minute ago", 90 * time.Minute: "1 hour ago",
+		47 * time.Hour: "47 hours ago", 72 * time.Hour: "3 days ago",
+	} {
+		if got := ago(noon.Add(-d), noon); got != want {
+			t.Errorf("ago(%v) = %q, want %q", d, got, want)
 		}
 	}
 }
