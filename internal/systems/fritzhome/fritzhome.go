@@ -89,6 +89,7 @@ func (f *FritzHome) Register(mux *http.ServeMux, prefix string, deps system.Deps
 	mux.HandleFunc("POST "+prefix+"floorplan", f.handleUpload)
 	mux.HandleFunc("GET "+prefix+"floorplan", f.handleImage)
 	mux.HandleFunc("POST "+prefix+"positions", f.handlePositions)
+	mux.HandleFunc("GET "+prefix+"overview", f.handleOverviewBody)
 	f.charts = &chart.Set{Prom: promql.New(deps.PromURL), Charts: charts, Names: f.lineNames}
 	f.charts.Register(mux, prefix)
 }
@@ -182,6 +183,12 @@ func (f *FritzHome) Collect(ctx context.Context) ([]system.Metric, error) {
 		if d.SwitchOn != nil {
 			add("fritz_switch_on", "1 when the switch is on", "gauge", d, boolVal(*d.SwitchOn))
 		}
+		if d.LevelPct != nil {
+			add("fritz_level_percent", "Brightness of a bulb", "gauge", d, *d.LevelPct)
+		}
+		if d.Contact != nil {
+			add("fritz_contact_open", "1 when the door or window is open", "gauge", d, boolVal(d.Contact.Open))
+		}
 		if d.TargetC != nil {
 			add("fritz_target_temperature_celsius", "Thermostat setpoint", "gauge", d, *d.TargetC)
 		}
@@ -237,26 +244,47 @@ func (f *FritzHome) Render(slug string, r *http.Request) (template.HTML, error) 
 	return "", fmt.Errorf("unknown page %q", slug)
 }
 
-type deviceRow struct {
-	Name, Product, AIN string
-	Present            bool
-	Power, Energy      string
-	Temp, Humidity     string
-	Switch             string
-	Target, Battery    string
+type overviewPage struct {
+	Top          system.PageTop
+	Unconfigured bool
+	Err          string
+	Refresh      int // seconds
+	URL          string
+	overviewModel
 }
 
 func (f *FritzHome) renderOverview(r *http.Request) (template.HTML, error) {
-	data := struct {
-		Top          system.PageTop
-		Devices      []deviceRow
-		Err          string
-		Unconfigured bool
-	}{Unconfigured: !f.configured()}
-	data.Top = system.PageTop{Title: "Devices"}
+	data, err := f.overviewData(r)
+	if err != nil {
+		return "", err
+	}
+	return f.exec("overview", data)
+}
 
+// handleOverviewBody is the part of the overview htmx swaps in on its own
+// every poll interval, so an open page never goes stale.
+func (f *FritzHome) handleOverviewBody(w http.ResponseWriter, r *http.Request) {
+	data, err := f.overviewData(r)
+	if err == nil {
+		var body template.HTML
+		if body, err = f.exec("overview-body", data); err == nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(body))
+			return
+		}
+	}
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+}
+
+func (f *FritzHome) overviewData(r *http.Request) (overviewPage, error) {
+	data := overviewPage{
+		Unconfigured: !f.configured(),
+		Refresh:      max(int(f.interval()/time.Second), 10),
+		URL:          f.prefix + "overview",
+	}
+	data.Top = system.PageTop{Title: "Now"}
 	if data.Unconfigured {
-		return f.exec("overview", data)
+		return data, nil
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -264,47 +292,43 @@ func (f *FritzHome) renderOverview(r *http.Request) (template.HTML, error) {
 	devices, err := f.devices(ctx)
 	if err != nil {
 		data.Err = err.Error()
-		return f.exec("overview", data)
+		return data, nil
 	}
+	now := time.Now()
+	data.overviewModel = buildOverview(devices, f.energyToday(ctx, now), now)
 
-	var total float64
-	for _, d := range devices {
-		row := deviceRow{Name: d.Name, Product: d.Product, AIN: d.AIN, Present: d.Present}
-		if d.PowerW != nil {
-			total += *d.PowerW
-			row.Power = fmt.Sprintf("%.1f W", *d.PowerW)
-		}
-		if d.EnergyKWh != nil {
-			row.Energy = fmt.Sprintf("%.1f kWh", *d.EnergyKWh)
-		}
-		if d.TempC != nil {
-			row.Temp = fmt.Sprintf("%.1f °C", *d.TempC)
-		}
-		if d.HumidityP != nil {
-			row.Humidity = fmt.Sprintf("%.0f %%", *d.HumidityP)
-		}
-		if d.SwitchOn != nil {
-			row.Switch = "off"
-			if *d.SwitchOn {
-				row.Switch = "on"
-			}
-		}
-		if d.TargetC != nil {
-			row.Target = fmt.Sprintf("%.1f °C", *d.TargetC)
-		}
-		if d.BatteryPct != nil {
-			row.Battery = fmt.Sprintf("%.0f %%", *d.BatteryPct)
-		}
-		data.Devices = append(data.Devices, row)
-	}
 	f.mu.Lock()
 	age := time.Since(f.cachedAt).Round(time.Second)
 	f.mu.Unlock()
-
 	data.Top.Infof(`<span class="has-text-grey is-size-7">%d devices</span>`, len(devices))
 	data.Top.Infof(`<span class="has-text-grey is-size-7">read %s ago</span>`, age)
-	data.Top.Actionf(`<span class="tag is-primary is-medium">%.1f W total</span>`, total)
-	return f.exec("overview", data)
+	return data, nil
+}
+
+// energyToday is each device's kWh since local midnight, or nil when there is
+// no Prometheus to ask. The day's first minute has too little history to say.
+func (f *FritzHome) energyToday(ctx context.Context, now time.Time) map[string]float64 {
+	if f.deps.PromURL() == "" {
+		return nil
+	}
+	y, m, d := now.Date()
+	since := now.Sub(time.Date(y, m, d, 0, 0, 0, 0, now.Location()))
+	if since < time.Minute {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	samples, err := f.charts.Prom.Query(ctx,
+		fmt.Sprintf(`max by (ain) (increase(fritz_energy_kwh_total[%ds]))`, int(since/time.Second)))
+	if err != nil {
+		f.deps.Log.Warn("energy today", "err", err)
+		return map[string]float64{}
+	}
+	out := map[string]float64{}
+	for _, s := range samples {
+		out[s.Labels["ain"]] = s.Value
+	}
+	return out
 }
 
 func (f *FritzHome) exec(name string, data any) (template.HTML, error) {

@@ -7,46 +7,183 @@
     Set <code>AD_SYSTEM_FRITZHOME_USERNAME</code> and <code>AD_SYSTEM_FRITZHOME_PASSWORD</code>
     in <code>.env.local</code>, then restart. The user needs the Smart Home permission.
   </div>
-{{else if .Err}}
+{{else}}
+<style>
+  /* Bulma has no stacked bar, so the power bar is the one thing here with
+     rules of its own. The colours are a categorical palette checked for
+     colour blind separation, stepped separately for the dark scheme. */
+  .fh-bar { display: flex; gap: 2px; height: 1.5rem; border-radius: var(--bulma-radius);
+            overflow: hidden; background: var(--bulma-scheme-main-ter); }
+  .fh-seg { min-width: 2px; }
+  .fh-swatch { display: inline-block; width: .75rem; height: .75rem; border-radius: 2px;
+               vertical-align: middle; }
+  .fh-c0 { background: #2a78d6; } .fh-c1 { background: #eb6834; } .fh-c2 { background: #1baf7a; }
+  .fh-c3 { background: #eda100; } .fh-c4 { background: #e87ba4; } .fh-c5 { background: #008300; }
+  .fh-c-1 { background: var(--bulma-grey-light); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .fh-c0 { background: #3987e5; }
+    :root:not([data-theme="light"]) .fh-c1 { background: #d95926; }
+    :root:not([data-theme="light"]) .fh-c2 { background: #199e70; }
+    :root:not([data-theme="light"]) .fh-c3 { background: #c98500; }
+    :root:not([data-theme="light"]) .fh-c4 { background: #d55181; }
+    :root:not([data-theme="light"]) .fh-c-1 { background: var(--bulma-grey); }
+  }
+  :root[data-theme="dark"] .fh-c0 { background: #3987e5; }
+  :root[data-theme="dark"] .fh-c1 { background: #d95926; }
+  :root[data-theme="dark"] .fh-c2 { background: #199e70; }
+  :root[data-theme="dark"] .fh-c3 { background: #c98500; }
+  :root[data-theme="dark"] .fh-c4 { background: #d55181; }
+  :root[data-theme="dark"] .fh-c-1 { background: var(--bulma-grey); }
+</style>
+<div hx-get="{{.URL}}" hx-trigger="every {{.Refresh}}s [!document.hidden]" hx-swap="innerHTML">
+  {{template "overview-body" .}}
+</div>
+{{end}}
+{{end}}
+
+{{define "overview-body"}}
+{{if .Err}}
   <div class="notification is-danger"><strong>Could not reach the FRITZ!Box.</strong><br>{{.Err}}</div>
 {{else}}
-  <div class="box">
-  <div class="table-container">
-  <table class="table is-fullwidth is-hoverable">
-    <thead>
+
+<div class="fixed-grid has-2-cols-mobile has-3-cols-tablet has-5-cols-desktop">
+  <div class="grid">
+    {{range .KPIs}}{{template "stat-card" .}}{{end}}
+  </div>
+</div>
+
+{{if .Attention}}
+<div class="notification is-warning is-light">
+  <strong>Needs attention</strong>
+  <ul class="mt-1">{{range .Attention}}<li>{{.}}</li>{{end}}</ul>
+</div>
+{{end}}
+
+{{with .Power}}
+<div class="box">
+  <div class="level is-mobile mb-3">
+    <div class="level-left"><h2 class="title is-6 mb-0">Where the power goes</h2></div>
+    <div class="level-right"><span class="tag is-medium">{{.Whole}}</span></div>
+  </div>
+  {{if .Segments}}
+  <div class="fh-bar mb-3" role="img" aria-label="Power by device, {{.Whole}} in total">
+    {{range .Segments}}<div class="fh-seg fh-c{{.Colour}}" style="width: {{.Width}}%" title="{{.Name}}: {{.Watts}}, {{.Share}}"></div>{{end}}
+  </div>
+  {{else}}
+  <p class="has-text-grey is-size-7 mb-3">Nothing is drawing power.</p>
+  {{end}}
+  <table class="table is-fullwidth is-narrow mb-0">
+    <tbody>
+      {{range .Rows}}
       <tr>
-        <th>Device</th><th class="is-hidden-mobile">Model</th>
-        <th class="has-text-right">Power</th>
-        <th class="has-text-right">Energy</th>
-        <th class="has-text-right">Temp</th>
-        <th class="has-text-right">Humidity</th>
-        <th class="has-text-right">Target</th>
-        <th class="has-text-right">Battery</th>
-        <th>Switch</th>
+        <td><span class="fh-swatch fh-c{{.Colour}} mr-2"></span>{{.Name}}</td>
+        <td class="has-text-right">{{.Watts}}</td>
+        <td class="has-text-right has-text-grey" style="width: 4rem">{{.Share}}</td>
       </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{if .Switches}}
+<h2 class="title is-6 mt-5 mb-3">Switches and lights</h2>
+<div class="fixed-grid has-2-cols-mobile has-3-cols-tablet has-4-cols-desktop">
+  <div class="grid">
+    {{range .Switches}}
+    <div class="cell">
+      <div class="box">
+        <div class="level is-mobile mb-1">
+          <div class="level-left"><strong>{{.Name}}</strong></div>
+          <div class="level-right">
+            {{if .Absent}}<span class="tag is-warning">unreachable</span>
+            {{else if .On}}<span class="tag is-primary is-light">on</span>
+            {{else}}<span class="tag">off</span>{{end}}
+          </div>
+        </div>
+        <p class="is-size-7 has-text-grey">{{if .Light}}Light{{else}}Plug{{end}}{{if .Detail}}, {{.Detail}}{{end}}</p>
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{if .Contacts}}
+<h2 class="title is-6 mt-5 mb-3">Doors and windows</h2>
+<div class="fixed-grid has-2-cols-mobile has-3-cols-tablet has-4-cols-desktop">
+  <div class="grid">
+    {{range .Contacts}}
+    <div class="cell">
+      <div class="box">
+        <div class="level is-mobile mb-1">
+          <div class="level-left"><strong>{{.Name}}</strong></div>
+          <div class="level-right">
+            {{if .Absent}}<span class="tag is-warning">unreachable</span>
+            {{else if .Open}}<span class="tag is-warning">open</span>
+            {{else}}<span class="tag is-success is-light">closed</span>{{end}}
+          </div>
+        </div>
+        <p class="is-size-7 has-text-grey">{{if .Door}}Door{{else}}Window{{end}}{{if .Since}}, {{.Since}}{{end}}</p>
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{if .Climate}}
+<h2 class="title is-6 mt-5 mb-3">Climate</h2>
+<div class="fixed-grid has-1-cols-mobile has-2-cols-tablet has-4-cols-desktop">
+  <div class="grid">
+    {{range .Climate}}
+    <div class="cell">
+      <div class="box">
+        <div class="level is-mobile mb-1">
+          <div class="level-left"><strong>{{.Name}}</strong></div>
+          <div class="level-right">
+            {{if .Absent}}<span class="tag is-warning">unreachable</span>
+            {{else if .Heating}}<span class="tag is-danger is-light">heating</span>{{end}}
+            {{range .Flags}}<span class="tag is-info is-light ml-1">{{.}}</span>{{end}}
+          </div>
+        </div>
+        {{if .Temp}}<p class="title is-4 mb-1">{{.Temp}}</p>{{end}}
+        {{if .Humidity}}<p class="is-size-7 has-text-grey">{{.Humidity}}</p>{{end}}
+        {{if .Target}}<p class="is-size-7 has-text-grey">{{.Target}}{{if .Next}}, {{.Next}}{{end}}</p>{{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{if .Health}}
+<div class="box mt-5">
+  <h2 class="title is-6">Devices</h2>
+  <div class="table-container">
+  <table class="table is-fullwidth is-narrow">
+    <thead>
+      <tr><th>Device</th><th class="is-hidden-mobile">Model</th><th class="is-hidden-mobile">Firmware</th>
+          <th>Status</th><th class="has-text-right">Battery</th></tr>
     </thead>
     <tbody>
-      {{range .Devices}}
-      <tr{{if not .Present}} class="has-text-grey-light"{{end}}>
-        <td><strong>{{.Name}}</strong>{{if not .Present}} <span class="tag is-light">absent</span>{{end}}</td>
-        <td class="is-size-7 has-text-grey is-hidden-mobile">{{.Product}}</td>
-        <td class="has-text-right">{{.Power}}</td>
-        <td class="has-text-right">{{.Energy}}</td>
-        <td class="has-text-right">{{.Temp}}</td>
-        <td class="has-text-right">{{.Humidity}}</td>
-        <td class="has-text-right">{{.Target}}</td>
-        <td class="has-text-right">{{.Battery}}</td>
-        <td>{{if eq .Switch "on"}}<span class="tag is-primary is-light">on</span>
-            {{else if eq .Switch "off"}}<span class="tag is-light">off</span>{{end}}</td>
+      {{range .Health}}
+      <tr>
+        <td><strong>{{.Name}}</strong></td>
+        <td class="has-text-grey is-hidden-mobile">{{.Product}}</td>
+        <td class="has-text-grey is-hidden-mobile">{{.Firmware}}</td>
+        <td>{{if .Present}}<span class="tag is-success is-light">connected</span>{{else}}<span class="tag is-warning">unreachable</span>{{end}}</td>
+        <td class="has-text-right">{{if .BatteryLow}}<span class="tag is-warning">{{.Battery}} low</span>{{else}}{{.Battery}}{{end}}</td>
       </tr>
       {{end}}
     </tbody>
   </table>
   </div>
-  </div>
-  <p class="is-size-7 has-text-grey">
-    Read directly from the box. The same reading feeds <code>/metrics</code>, which Prometheus
-    scrapes for history.
-  </p>
+</div>
+{{end}}
+
+<p class="is-size-7 has-text-grey">
+  Read directly from the box, every {{.Refresh}} s while this page is open. History is on the chart pages.
+</p>
 {{end}}
 {{end}}

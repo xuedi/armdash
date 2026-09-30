@@ -185,6 +185,13 @@ stack.
 - `fritz_exporter`: <https://github.com/pdreker/fritz_exporter>
 - Prometheus HTTP API: <https://prometheus.io/docs/prometheus/latest/querying/api/>
 
+## Contacts, bulbs and batteries
+
+Door and window contacts publish `fritz_contact_open` (1 open, 0 closed), bulbs
+`fritz_level_percent` next to `fritz_switch_on`, and `fritz_battery_percent` and
+`fritz_battery_low` cover every battery device. A HAN-FUN device and its unit are one entry, under
+the unit's AIN; see [fritzhome.md](fritzhome.md).
+
 ## Internet traffic
 
 Next to the smart home data, the FritzHome system publishes the internet connection's traffic and
