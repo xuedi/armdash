@@ -3,6 +3,8 @@
 // AHA-HTTP-Interface for smart home data, and UPnP IGD for the internet
 // connection's traffic.
 //
+// The Smart Home REST API of FRITZ!OS 8.20 is the alternative to AHA, see rest.go.
+//
 // It deliberately does not touch the web UI. Scraping the UI is what makes
 // home-grown FRITZ!Box scripts break on every firmware update; these are
 // specified and versioned.

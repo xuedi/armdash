@@ -192,6 +192,40 @@ Door and window contacts publish `fritz_contact_open` (1 open, 0 closed), bulbs
 `fritz_battery_low` cover every battery device. A HAN-FUN device and its unit are one entry, under
 the unit's AIN; see [fritzhome.md](fritzhome.md).
 
+## AHA or the REST API
+
+Smart home devices can be read over two interfaces. Which one is a checkbox under FritzHome on the
+settings page, "Use the Smart Home REST API", off by default.
+
+- **AHA**, `/webservices/homeautoswitch.lua`, XML. Every box with smart home support speaks it.
+- **The Smart Home REST API** of FRITZ!OS 8.20 and later, `/api/v0/smarthome/overview`, JSON. Same
+  `login_sid.lua` session, passed as `Authorization: AVM-SID <sid>`, and the same Smart Home
+  permission is enough. It reports devices and their units apart, much as AHA lists a HAN-FUN
+  device twice, and armdash merges them the same way: one entry per unit, under the unit's AIN,
+  which is the same AIN AHA uses, so the history carries on across a switch. Units are the same
+  (mW, mV, Wh), and a reading whose state is not `valid` counts as no reading, not as zero.
+
+AHA stays the default because the REST API is a 0.9 specification under `/api/v0` that reserves the
+right to rename things, and because on the box it was checked against, a 6670 Cable on FRITZ!OS
+8.25, it reports **less**: for a FRITZ!Smart Energy 250 on the house meter, AHA gives the meter's
+energy total and REST returns its multimeter as `"state": "unknown"`. With REST on, that series
+stops, and with it the whole-flat figure in "Energy today". Everything else matched.
+
+**Falling back.** When a REST poll fails, armdash asks AHA at once:
+
+- AHA answers: the REST API is the problem. The reading from AHA is used, the checkbox is turned
+  off, and when and why are stored and shown in the status box for a week. The next polls use AHA.
+- AHA fails too: the box is down or the login is wrong, and switching interface would not help.
+  The error is reported and the setting stays.
+
+Turning the checkbox on again clears the old reason once REST answers. An env file that sets
+`AD_SYSTEM_FRITZHOME_REST_API` cannot be switched off from inside; armdash then stays on AHA until
+the next restart and logs why.
+
+**Gaps.** While REST is on, armdash reads AHA as well once an hour and compares: every reading AHA
+has and REST lacks is listed in the status box and as a notice on the overview. A gap is not a
+reason to fall back, it is the owner's call.
+
 ## Internet traffic
 
 Next to the smart home data, the FritzHome system publishes the internet connection's traffic and
@@ -229,8 +263,8 @@ Consequences:
 - The line speed is published but not drawn. At 1 Gbit/s it would press an evening's few
   Mbit/s flat against the axis.
 
-The new Smart Home REST API of FRITZ!OS 8.20 was checked as an alternative and covers smart home
-devices only, not the internet connection.
+The Smart Home REST API of FRITZ!OS 8.20 covers smart home devices only, not the internet
+connection, so the traffic comes over IGD whichever interface is chosen above.
 
 ## The floor plan
 

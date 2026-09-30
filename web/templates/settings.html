@@ -192,6 +192,18 @@
 {{end}}
 
 {{define "settings-input"}}
+{{if eq .Input "checkbox"}}
+<div class="field">
+  <div class="control">
+    <label class="checkbox has-text-weight-semibold">
+      <input type="checkbox" name="{{.Name}}" value="1"{{if .Value}} checked{{end}}{{if .Disabled}} disabled{{end}}>
+      {{.Label}}
+    </label>
+  </div>
+  <p class="help">{{if .Locked}}<span class="tag is-light mr-1">set in {{.Locked}}</span>{{end}}{{.Help}}
+    <span class="has-text-grey-light" style="overflow-wrap:anywhere">{{.EnvName}}</span></p>
+</div>
+{{else}}
 <div class="field">
   <label class="label" for="f-{{.Name}}">{{.Label}}</label>
   <div class="control">
@@ -202,6 +214,7 @@
   <p class="help">{{if .Locked}}<span class="tag is-light mr-1">set in {{.Locked}}</span>{{end}}{{.Help}}
     <span class="has-text-grey-light" style="overflow-wrap:anywhere">{{.EnvName}}</span></p>
 </div>
+{{end}}
 {{end}}
 
 {{define "settings-status"}}

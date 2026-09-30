@@ -32,6 +32,7 @@ Each headline card has a grey note under its value, so none of them is shorter t
 |---|---|
 | Headline row | power now, energy today, doors and windows, indoor temperature and humidity, the attention count |
 | Needs attention | a warning listing each issue, shown only when there is one |
+| REST API gaps | readings AHA has and the REST API lacks, only while the REST API is in use, see [fritzbox-metrics.md](fritzbox-metrics.md#aha-or-the-rest-api) |
 | Where the power goes | one bar split by device, with a table of every plug, its watts and its share |
 | Switches and lights | a tile per plug, bulb or other switch: on or off, watts or brightness |
 | Doors and windows | a tile per contact, open ones first, with the time of the last change |

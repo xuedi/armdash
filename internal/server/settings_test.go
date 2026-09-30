@@ -168,6 +168,7 @@ func (fakeSystem) ConfigSchema() []system.ConfigField {
 	return []system.ConfigField{
 		{Key: "url", Kind: system.KindURL},
 		{Key: "password", Kind: system.KindPassword, Secret: true},
+		{Key: "flag", Kind: system.KindBool},
 	}
 }
 func (fakeSystem) Render(string, *http.Request) (template.HTML, error) { return "", nil }
@@ -237,5 +238,32 @@ func TestEnvironmentLocksAField(t *testing.T) {
 	do(s, post("/settings/core", url.Values{prometheusURLKey: {"http://page:9090"}}), c)
 	if got := s.PromURL(); got != "http://env:9090" {
 		t.Errorf("the page overrode the environment: %q", got)
+	}
+}
+
+func TestCheckboxFieldsAndSystemSaves(t *testing.T) {
+	s, _ := newStoreServer(t)
+	c := setUp(t, s)
+	save := func(form url.Values) {
+		t.Helper()
+		s.tree().systems = []system.System{fakeSystem{}}
+		if rec := do(s, post("/settings/system/box", form), c); rec.Code != http.StatusSeeOther {
+			t.Fatalf("save = %d: %s", rec.Code, rec.Body.String())
+		}
+	}
+	save(url.Values{"system.box.enabled": {"1"}, "system.box.flag": {"1"}})
+	if !s.cfg.Bool("system.box.flag") {
+		t.Fatal("a ticked box was not saved")
+	}
+	save(url.Values{"system.box.enabled": {"1"}})
+	if s.cfg.Has("system.box.flag") {
+		t.Error("an unticked box stayed on")
+	}
+
+	if err := s.saveScoped("system.box.")(map[string]string{"flag": "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !s.cfg.Bool("system.box.flag") || s.cfg.Has("flag") {
+		t.Error("a system's own save left its namespace")
 	}
 }

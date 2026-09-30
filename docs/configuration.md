@@ -58,11 +58,14 @@ default from `.env.dist`.
 Each box on the page is its own form. A save:
 
 1. checks each field by its kind: an address must be `http://` or `https://` with a host, a
-   duration must parse, a secret left empty keeps the stored one;
+   duration must parse, a secret left empty keeps the stored one, a checkbox left unticked removes
+   the stored value and so falls back to off;
 2. changes the values in memory;
 3. builds a new route tree from them: the links parsed again, and a fresh instance of every system
    registered with the new values;
 4. only then writes the file, and swaps the new tree in.
+
+A system can also save its own keys, through the same steps; see [systems.md](systems.md).
 
 If the tree cannot be built, a link with a bad URL for instance, the values are put back, the file
 is not touched, and the form comes back with the error. Requests already running finish on the old

@@ -1,6 +1,6 @@
 # armdash
 
-![version](https://img.shields.io/badge/version-0.17.0-blue)
+![version](https://img.shields.io/badge/version-0.18.0-blue)
 ![licence](https://img.shields.io/badge/licence-EUPL--1.2-brightgreen)
 
 A single-binary web dashboard for a home server. One tab per *system*: server
@@ -56,7 +56,10 @@ per day, with ranges from one hour to one year. The internet connection too: thr
 Mbit/s and data volume per hour or per day.
 
 armdash talks to the box itself over AVM's documented interfaces, so there
-is no separate exporter to run and the credentials live in one place. The page
+is no separate exporter to run and the credentials live in one place. Devices
+are read over AHA, or over the Smart Home REST API of FRITZ!OS 8.20 when it is
+switched on in the settings; armdash switches back to AHA by itself if the REST
+API fails. The page
 shows the live reading; the same reading is published at `/metrics` for
 Prometheus to keep as history.
 

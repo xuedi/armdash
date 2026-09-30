@@ -56,6 +56,14 @@
   {{range .KPIs}}{{template "stat-card" .}}{{end}}
 </div>
 
+{{if .Gaps}}
+<div class="notification is-warning is-light">
+  <strong>The REST API does not report everything AHA does.</strong>
+  Missing: {{range $i, $g := .Gaps}}{{if $i}}; {{end}}{{$g}}{{end}}.
+  Turn it off under FritzHome on the <a href="/settings#system-fritzhome">settings page</a> to get them back.
+</div>
+{{end}}
+
 {{if .Attention}}
 <div class="notification is-warning is-light">
   <strong>Needs attention</strong>

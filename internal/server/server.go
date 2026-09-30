@@ -184,6 +184,7 @@ func (t *tree) routes() {
 			Config:  s.cfg.Scoped(sys.ID()),
 			Log:     s.log.With("system", sys.ID()),
 			PromURL: s.PromURL,
+			Save:    s.saveScoped("system." + sys.ID() + "."),
 		}
 		if dataDir != "" {
 			deps.DataDir = filepath.Join(dataDir, sys.ID())

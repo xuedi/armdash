@@ -142,6 +142,8 @@ func (t *tree) input(f fieldSpec, st saveState, section string) settingsField {
 		in.Input = "url"
 	case system.KindPassword:
 		in.Input = "password"
+	case system.KindBool:
+		in.Input = "checkbox"
 	}
 	cur := t.cfg.Get(f.Key)
 	switch {
@@ -152,6 +154,9 @@ func (t *tree) input(f fieldSpec, st saveState, section string) settingsField {
 	default:
 		in.Value = cur
 		in.Placeholder = f.Default
+	}
+	if f.Kind == system.KindBool {
+		in.Value = map[bool]string{true: "1", false: ""}[t.cfg.Bool(f.Key)]
 	}
 	if st.Section == section && st.Posted != nil && !f.Secret && in.Locked == "" {
 		in.Value = st.Posted.Get(f.Key)
@@ -344,6 +349,17 @@ func (s *Server) saveLocked(changes map[string]string) error {
 	return nil
 }
 
+// saveScoped is Deps.Save: a system's own keys, under its prefix only.
+func (s *Server) saveScoped(prefix string) func(map[string]string) error {
+	return func(changes map[string]string) error {
+		full := make(map[string]string, len(changes))
+		for k, v := range changes {
+			full[prefix+k] = v
+		}
+		return s.save(full)
+	}
+}
+
 // editor refuses a settings form from anyone but the logged-in owner.
 func (t *tree) editor(w http.ResponseWriter, r *http.Request) bool {
 	switch {
@@ -372,6 +388,14 @@ func (t *tree) collect(specs []fieldSpec, form url.Values) (map[string]string, m
 		}
 		raw := strings.TrimSpace(form.Get(f.Key))
 		cur := t.cfg.Get(f.Key)
+		// An unticked checkbox is absent from the form, so unticked is "",
+		// which removes the stored value and falls back to off.
+		if f.Kind == system.KindBool {
+			if t.cfg.Bool(f.Key) != (raw == "1") {
+				changes[f.Key] = raw
+			}
+			continue
+		}
 		if raw == cur || f.Secret && raw == "" {
 			continue
 		}

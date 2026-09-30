@@ -66,6 +66,13 @@ func TestAgainstRealBox(t *testing.T) {
 		t.Fatalf("second call: %v", err)
 	}
 
+	rest, err := c.DevicesREST(ctx)
+	if err != nil {
+		t.Logf("REST API: %v", err)
+	} else {
+		t.Logf("REST API: %d device(s), lacking %q, adding %q", len(rest), Missing(devices, rest), Missing(rest, devices))
+	}
+
 	w, err := c.WAN(ctx)
 	if err != nil {
 		t.Fatalf("WAN: %v", err)

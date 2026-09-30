@@ -48,6 +48,8 @@ type FritzHome struct {
 	wanLogged string
 
 	writeMu sync.Mutex
+
+	iface ifaceState
 }
 
 func (f *FritzHome) ID() string    { return "fritzhome" }
@@ -67,6 +69,8 @@ func (f *FritzHome) ConfigSchema() []system.ConfigField {
 		{Key: "username", Label: "Username", Kind: system.KindText,
 			Help: "A FRITZ!Box user with the Smart Home permission."},
 		{Key: "password", Label: "Password", Kind: system.KindPassword, Secret: true},
+		{Key: restKey, Label: "Use the Smart Home REST API", Kind: system.KindBool,
+			Help: "FRITZ!OS 8.20 or later. Off reads over AHA, which every box speaks. When the REST API fails and AHA works, this turns itself off; the status box says when and why."},
 		{Key: "interval", Label: "Poll interval", Kind: system.KindDuration, Default: "60s",
 			Help: "How long a reading is reused before the box is asked again."},
 		{Key: "floorplan_file", Label: "Floor plan file", Kind: system.KindText,
@@ -113,7 +117,7 @@ func (f *FritzHome) devices(ctx context.Context) ([]fritzbox.Device, error) {
 	if time.Since(f.cachedAt) < f.interval() && (f.cached != nil || f.cachedErr != nil) {
 		return f.cached, f.cachedErr
 	}
-	d, err := f.cli.Devices(ctx)
+	d, err := f.read(ctx, f.cli)
 	f.cached, f.cachedErr, f.cachedAt = d, err, time.Now()
 	return d, err
 }
@@ -248,7 +252,8 @@ type overviewPage struct {
 	Top          system.PageTop
 	Unconfigured bool
 	Err          string
-	Refresh      int // seconds
+	Gaps         []string // readings the REST API lacks, while it is in use
+	Refresh      int      // seconds
 	URL          string
 	overviewModel
 }
@@ -296,6 +301,7 @@ func (f *FritzHome) overviewData(r *http.Request) (overviewPage, error) {
 	}
 	now := time.Now()
 	data.overviewModel = buildOverview(devices, f.energyToday(ctx, now), now)
+	data.Gaps = f.gaps()
 
 	f.mu.Lock()
 	age := time.Since(f.cachedAt).Round(time.Second)
@@ -359,5 +365,5 @@ func (f *FritzHome) Status(ctx context.Context) []system.Check {
 	} else {
 		out = append(out, system.Check{Title: "Internet traffic", Level: "ok", Detail: "Read over UPnP"})
 	}
-	return out
+	return append(out, f.ifaceCheck()...)
 }

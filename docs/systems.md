@@ -41,6 +41,11 @@ A system may also implement `system.Checker`: a `Status` that returns a few line
 box on the settings page, what works and what is still missing. FritzHome reports the box login and
 the UPnP traffic counters, Host whether Prometheus has node_exporter data.
 
+`Deps.Save` lets a system change its own settings, within its own namespace, the way the settings
+page would: the store is updated and every system is registered afresh. FritzHome uses it to turn
+the REST API off after it failed. A system never calls it for anything the owner has not asked for
+or would not want to see explained on the settings page.
+
 `Deps.DataDir` is the system's own directory for what people change through a page, empty when no
 data directory is configured. A system that writes offers nothing to change when it is empty. See
 [configuration.md](configuration.md).

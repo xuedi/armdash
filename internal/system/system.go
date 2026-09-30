@@ -55,8 +55,9 @@ type ConfigField struct {
 }
 
 // Store is the subset of configuration a system may read: its own keys.
-// There is no setter: the owner changes settings on the settings page, and
-// the shell then registers every system afresh with the new values.
+// There is no setter here: the owner changes settings on the settings page,
+// and the shell then registers every system afresh with the new values. A
+// system that has to change one of its own itself uses Deps.Save.
 type Store interface {
 	Get(key string) string
 	GetOr(key, def string) string
@@ -72,6 +73,11 @@ type Deps struct {
 	// DataDir is this system's own directory for what people change through a
 	// page, or "" when no data directory is configured. It may not exist yet.
 	DataDir string
+	// Save stores some of the system's own keys, "" removing one, as the
+	// settings page would. Every system is then registered afresh, this one
+	// included, so the caller's instance is on its way out once it returns.
+	// It fails when there is no data directory or an env file sets the key.
+	Save func(changes map[string]string) error
 }
 
 // System is the contract. Keep it small and serialisable-ish: if out-of-process
