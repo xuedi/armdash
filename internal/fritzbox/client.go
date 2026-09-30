@@ -1,13 +1,15 @@
-// Package fritzbox talks to a FRITZ!Box over the two interfaces AVM documents
-// and keeps stable across firmware releases: login_sid.lua for the session and
-// the AHA-HTTP-Interface for smart home data.
+// Package fritzbox talks to a FRITZ!Box over interfaces AVM documents and keeps
+// stable across firmware releases: login_sid.lua for the session, the
+// AHA-HTTP-Interface for smart home data, and UPnP IGD for the internet
+// connection's traffic.
 //
 // It deliberately does not touch the web UI. Scraping the UI is what makes
-// home-grown FRITZ!Box scripts break on every firmware update; these two are
+// home-grown FRITZ!Box scripts break on every firmware update; these are
 // specified and versioned.
 //
 //	https://fritz.support/resources/HTTP_Session-ID_EN.pdf
 //	https://avm.de/fileadmin/user_upload/Global/Service/Schnittstellen/AHA-HTTP-Interface.pdf
+//	https://fritz.support/resources/TR-064_WAN_Common_Interface_Config.pdf
 package fritzbox
 
 import (
@@ -42,6 +44,9 @@ type Client struct {
 	Password string
 	HTTP     *http.Client
 
+	// IGD is the box's UPnP address, derived from BaseURL.
+	IGD string
+
 	mu      sync.Mutex
 	sid     string
 	sidTime time.Time
@@ -53,6 +58,7 @@ func New(baseURL, username, password string) *Client {
 		Username: username,
 		Password: password,
 		HTTP:     &http.Client{Timeout: 15 * time.Second},
+		IGD:      igdBase(baseURL),
 	}
 }
 

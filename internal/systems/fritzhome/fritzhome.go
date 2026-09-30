@@ -41,6 +41,12 @@ type FritzHome struct {
 	cachedAt  time.Time
 	cachedErr error
 
+	wanMu     sync.Mutex
+	wan       fritzbox.WAN
+	wanAt     time.Time
+	wanErr    error
+	wanLogged string
+
 	writeMu sync.Mutex
 }
 
@@ -57,7 +63,7 @@ func (f *FritzHome) Nav() []system.NavItem {
 func (f *FritzHome) ConfigSchema() []system.ConfigField {
 	return []system.ConfigField{
 		{Key: "url", Label: "FRITZ!Box URL", Kind: system.KindURL, Default: "http://fritz.box",
-			Help: "The box itself. TR-064 does not need to be enabled; this uses the AHA HTTP interface."},
+			Help: "The box itself. Smart home data comes over the AHA HTTP interface; internet traffic over UPnP, which needs \"Transmit status information over UPnP\" on in the box's network settings."},
 		{Key: "username", Label: "Username", Kind: system.KindText,
 			Help: "A FRITZ!Box user with the Smart Home permission."},
 		{Key: "password", Label: "Password", Kind: system.KindPassword, Secret: true},
@@ -111,6 +117,32 @@ func (f *FritzHome) devices(ctx context.Context) ([]fritzbox.Device, error) {
 	return d, err
 }
 
+// wanReading is devices() for the internet connection, cached the same way.
+func (f *FritzHome) wanReading(ctx context.Context) (fritzbox.WAN, error) {
+	f.wanMu.Lock()
+	defer f.wanMu.Unlock()
+	if !f.wanAt.IsZero() && time.Since(f.wanAt) < f.interval() {
+		return f.wan, f.wanErr
+	}
+	f.wan, f.wanErr = f.cli.WAN(ctx)
+	f.wanAt = time.Now()
+	// Logged when it changes, not on every scrape: a box with UPnP status
+	// switched off would otherwise fill the journal once a minute.
+	msg := ""
+	if f.wanErr != nil {
+		msg = f.wanErr.Error()
+	}
+	if msg != f.wanLogged {
+		if msg != "" {
+			f.deps.Log.Warn("internet traffic unavailable", "err", f.wanErr)
+		} else {
+			f.deps.Log.Info("internet traffic readable again")
+		}
+		f.wanLogged = msg
+	}
+	return f.wan, f.wanErr
+}
+
 // Collect implements system.Collector.
 func (f *FritzHome) Collect(ctx context.Context) ([]system.Metric, error) {
 	if !f.configured() {
@@ -120,8 +152,10 @@ func (f *FritzHome) Collect(ctx context.Context) ([]system.Metric, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Traffic failing must not take the smart home history down with it, so
+	// it reports itself rather than failing the collection.
+	out := f.wanMetrics(ctx)
 
-	var out []system.Metric
 	add := func(name, help, typ string, d fritzbox.Device, v float64) {
 		out = append(out, system.Metric{
 			Name: name, Help: help, Type: typ, Value: v,
@@ -159,6 +193,28 @@ func (f *FritzHome) Collect(ctx context.Context) ([]system.Metric, error) {
 		}
 	}
 	return out, nil
+}
+
+func (f *FritzHome) wanMetrics(ctx context.Context) []system.Metric {
+	w, err := f.wanReading(ctx)
+	m := func(name, help, typ string, v float64) system.Metric {
+		return system.Metric{Name: name, Help: help, Type: typ, Value: v}
+	}
+	out := []system.Metric{m("fritz_wan_up", "1 when the internet traffic counters could be read", "gauge", boolVal(err == nil))}
+	if err != nil {
+		return out
+	}
+	out = append(out,
+		m("fritz_wan_received_bytes_total", "Bytes received from the internet since the box connected", "counter", float64(w.ReceivedBytes)),
+		m("fritz_wan_sent_bytes_total", "Bytes sent to the internet since the box connected", "counter", float64(w.SentBytes)),
+	)
+	if w.DownstreamBps > 0 {
+		out = append(out, m("fritz_wan_downstream_max_bits_per_second", "Line speed towards the home", "gauge", float64(w.DownstreamBps)))
+	}
+	if w.UpstreamBps > 0 {
+		out = append(out, m("fritz_wan_upstream_max_bits_per_second", "Line speed towards the internet", "gauge", float64(w.UpstreamBps)))
+	}
+	return out
 }
 
 func boolVal(b bool) float64 {

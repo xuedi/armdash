@@ -185,6 +185,46 @@ stack.
 - `fritz_exporter`: <https://github.com/pdreker/fritz_exporter>
 - Prometheus HTTP API: <https://prometheus.io/docs/prometheus/latest/querying/api/>
 
+## Internet traffic
+
+Next to the smart home data, the FritzHome system publishes the internet connection's traffic and
+draws it as two charts: **Throughput**, download and upload in Mbit/s, and **Data volume**, bars of
+gigabytes per hour or per day. The box's own Online-Monitor keeps only a few minutes; Prometheus
+keeps the same numbers for years.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `fritz_wan_received_bytes_total` | counter | bytes from the internet since the box connected |
+| `fritz_wan_sent_bytes_total` | counter | bytes to the internet since the box connected |
+| `fritz_wan_downstream_max_bits_per_second` | gauge | line speed towards the home |
+| `fritz_wan_upstream_max_bits_per_second` | gauge | line speed towards the internet |
+| `fritz_wan_up` | gauge | 1 when the counters could be read |
+
+**Where the numbers come from.** The traffic view in the box's web UI is served by its internal
+pages, the kind that change with every firmware. The documented source is the WAN common interface
+service on port 49000, which exists twice: once under TR-064, with a login, and once under UPnP IGD,
+without one. AVM's TR-064 description declares its byte counters as 32 bit, which wrap every
+4 GiB, and notes that they need IGD to work at all. Only the IGD service names explicit 64 bit
+fields (`X_AVM_DE_TotalBytesReceived64` and `...Sent64` from `GetAddonInfos`), so armdash reads
+those. Firmware without them falls back to the 32 bit counters, which still chart but reset every
+4 GiB.
+
+Consequences:
+
+- **The box has to have "Transmit status information over UPnP" on**, under Home Network,
+  Network, Network Settings. Off, the traffic pages stay empty and `fritz_wan_up` reads 0; the
+  smart home data is not affected.
+- IGD needs no login, so the traffic works with any FRITZ!Box user.
+- The counters reset when the box reconnects or restarts. They are published as counters, and
+  Prometheus' `rate()` and `increase()` treat a reset as a new start rather than a drop.
+- The box is asked at most once per poll interval, like the device list, so the throughput chart
+  shows one-minute averages, not the second-by-second bursts of the Online-Monitor.
+- The line speed is published but not drawn. At 1 Gbit/s it would press an evening's few
+  Mbit/s flat against the axis.
+
+The new Smart Home REST API of FRITZ!OS 8.20 was checked as an alternative and covers smart home
+devices only, not the internet connection.
+
 ## The floor plan
 
 The floor plan page, its SweetHome3D and JSON formats, uploading and placing devices are described

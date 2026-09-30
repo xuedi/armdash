@@ -65,6 +65,12 @@ func TestAgainstRealBox(t *testing.T) {
 	if _, err := c.Devices(ctx); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
+
+	w, err := c.WAN(ctx)
+	if err != nil {
+		t.Fatalf("WAN: %v", err)
+	}
+	t.Logf("WAN received=%d sent=%d down=%dbit/s up=%dbit/s", w.ReceivedBytes, w.SentBytes, w.DownstreamBps, w.UpstreamBps)
 }
 
 func fmtF(f float64) string {

@@ -44,6 +44,9 @@ AD_CORE_AUTH_USER=...
 AD_CORE_AUTH_PASSWORD_HASH=...
 ```
 
+For the internet traffic charts, the box needs "Transmit status information over UPnP" switched
+on, under Home Network, Network, Network Settings. It needs no extra permission for the user.
+
 The seeded file listens on `127.0.0.1:9494`, reachable from the machine itself only, and `:80`
 opens it to the network. Every key is in [configuration.md](configuration.md), HTTPS in
 [deployment.md](deployment.md#https) and the login in [authentication.md](authentication.md).
@@ -130,7 +133,8 @@ sudo systemctl enable --now armdash
 - Prometheus' targets page, `http://127.0.0.1:9090/targets` on the machine itself, lists node,
   armdash and prometheus, each up.
 - `curl -s http://127.0.0.1:9494/metrics | grep '^fritz_'` shows the FRITZ!Box readings, and
-  `armdash_collector_up` reads 1 while the box answers.
+  `armdash_collector_up` reads 1 while the box answers. `fritz_wan_up` reads 1 when the traffic
+  counters could be read.
 - The Host pages fill as soon as Prometheus has scraped node_exporter once; the charts grow with the
   history. A page with no Prometheus to read says so rather than showing zeroes.
 

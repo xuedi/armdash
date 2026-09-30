@@ -42,7 +42,7 @@ func TestSidebarListsTheCharts(t *testing.T) {
 	for _, n := range (&FritzHome{}).Nav() {
 		got = append(got, n.Title)
 	}
-	if want := "Overview, Floor plan, Temperatures, Power, Energy, Humidity"; strings.Join(got, ", ") != want {
+	if want := "Overview, Floor plan, Temperatures, Power, Energy, Humidity, Throughput, Data volume"; strings.Join(got, ", ") != want {
 		t.Errorf("sidebar = %s, want %s", strings.Join(got, ", "), want)
 	}
 }
@@ -126,6 +126,22 @@ func TestChartPageNeedsPrometheus(t *testing.T) {
 	for _, want := range []string{`id="armdash-chart"`, `range?metric=power`, "fritz_power_watts", "Total"} {
 		if !strings.Contains(string(h), want) {
 			t.Errorf("chart page is missing %s", want)
+		}
+	}
+}
+
+// Traffic is a pair of lifetime counters, so its volume is bars like energy.
+func TestDataVolumeIsBarsOfOneBucket(t *testing.T) {
+	c, ok := chart.Find(charts, "traffic")
+	if !ok {
+		t.Fatal("no data volume chart")
+	}
+	if c.Bucket == nil {
+		t.Error("data volume is not drawn as bars")
+	}
+	for _, s := range c.Series {
+		if !strings.Contains(s.Query, "increase(fritz_wan_") || !strings.Contains(s.Query, "[$bucket]") {
+			t.Errorf("%s query %q does not increase over the bucket", s.Name, s.Query)
 		}
 	}
 }

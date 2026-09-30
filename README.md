@@ -1,6 +1,6 @@
 # armdash
 
-![version](https://img.shields.io/badge/version-0.14.0-blue)
+![version](https://img.shields.io/badge/version-0.15.0-blue)
 ![licence](https://img.shields.io/badge/licence-EUPL--1.2-brightgreen)
 
 A single-binary web dashboard for a home server. One tab per *system*: server
@@ -50,7 +50,8 @@ lines, so a warm board says which part is warm.
 FRITZ!Box smart home data: smart plug power and energy, room temperatures,
 humidity, thermostat setpoints and battery levels. Charts of temperatures,
 power and humidity per device, and energy as bars per hour or per day, with
-ranges from one hour to one year.
+ranges from one hour to one year. The internet connection too: throughput in
+Mbit/s and data volume per hour or per day.
 
 armdash talks to the box itself over AVM's documented interfaces, so there
 is no separate exporter to run and the credentials live in one place. The page
