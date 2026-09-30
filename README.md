@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/xuedi/armdash/actions/workflows/ci.yml"><img src="https://github.com/xuedi/armdash/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/xuedi/armdash/releases"><img src="https://img.shields.io/badge/version-0.18.1-485fc7.svg" alt="Version"></a>
+  <a href="https://github.com/xuedi/armdash/releases"><img src="https://img.shields.io/badge/version-0.18.2-485fc7.svg" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-EUPL_v1.2-485fc7.svg" alt="License"></a>
   <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.27+-485fc7.svg" alt="Go"></a>
   <img src="https://img.shields.io/badge/deps-stdlib_only-26a269.svg" alt="Standard library only">
