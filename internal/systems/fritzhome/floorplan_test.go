@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"armdash/internal/config"
+	"armdash/internal/fritzbox"
 	"armdash/internal/sh3d"
 	"armdash/internal/system"
 )
@@ -321,5 +322,17 @@ func TestValidAIN(t *testing.T) {
 		if got := validAIN(s); got != want {
 			t.Errorf("validAIN(%q) = %v, want %v", s, got, want)
 		}
+	}
+}
+
+func TestPlugMarkerShowsPowerAndTemperature(t *testing.T) {
+	w, c := 42.0, 21.5
+	m := newMarker("1", "", map[string]fritzbox.Device{"1": {AIN: "1", Name: "Desk", Present: true, PowerW: &w, TempC: &c}})
+	if m.Value != "42" || m.Unit != "W" || m.Temp != "21.5 °C" {
+		t.Fatalf("got %q %q %q", m.Value, m.Unit, m.Temp)
+	}
+	m = newMarker("1", "", map[string]fritzbox.Device{"1": {AIN: "1", Present: true, TempC: &c}})
+	if m.Value != "21.5" || m.Temp != "" {
+		t.Fatalf("thermometer: got %q %q", m.Value, m.Temp)
 	}
 }

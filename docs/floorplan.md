@@ -147,5 +147,6 @@ browser post to it.
 ## Colour
 
 Colour carries meaning: teal for power, indigo for temperature, red for doors and for a device the
-box reports as absent. Everything else is a Bulma variable, so the plan follows the light and dark
+box reports as absent. A plug reports both, so its marker shows the power and the temperature in a
+small line beneath it. Everything else is a Bulma variable, so the plan follows the light and dark
 palettes.

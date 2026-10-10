@@ -303,6 +303,7 @@ func firstPoint(points string) (float64, float64) {
 
 type marker struct {
 	AIN, Name, Value, Unit, Colour string
+	Temp                           string // a plug's temperature, under its power
 	X, Y                           float64
 	Placed                         bool
 }
@@ -430,6 +431,9 @@ func newMarker(ain, label string, byAIN map[string]fritzbox.Device) marker {
 		m.Value = fmt.Sprintf("%.0f", *d.PowerW)
 		m.Unit = "W"
 		m.Colour = "hsl(171, 100%, 41%)"
+		if d.TempC != nil {
+			m.Temp = fmt.Sprintf("%.1f °C", *d.TempC)
+		}
 	case d.TempC != nil:
 		m.Value = fmt.Sprintf("%.1f", *d.TempC)
 		m.Unit = "°C"
