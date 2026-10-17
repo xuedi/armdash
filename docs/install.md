@@ -28,9 +28,10 @@ reads the Prometheus configuration to find out, but never changes it.
 ## The env file
 
 `/etc/armdash/armdash.env` only holds what the process needs before it can serve a page: where to
-listen and HTTPS. The seeded file listens on `:9494`, on every interface; `:80` makes it the
-default HTTP port, `127.0.0.1:9494` keeps it to the machine itself. HTTPS is in
-[deployment.md](deployment.md#https). Everything else is set up in the browser, see
+listen, HTTPS, and a reverse proxy in front. The seeded file listens on `:9494`, on every
+interface; `:80` makes it the default HTTP port, `127.0.0.1:9494` keeps it to the machine itself.
+HTTPS is in [deployment.md](deployment.md#https), a proxy in front in
+[deployment.md](deployment.md#behind-a-reverse-proxy). Everything else is set up in the browser, see
 [below](#setting-it-up-in-the-browser).
 
 Any other setting can still go into this file and then wins over the page, see

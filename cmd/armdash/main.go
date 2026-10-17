@@ -105,6 +105,10 @@ func main() {
 		log.Error("starting server", "err", err)
 		os.Exit(1)
 	}
+	if srv.LoginOff() {
+		log.Warn("login is off: anyone who reaches this address can change settings", "addr", listen,
+			"set_by", config.EnvName("core.auth_mode"))
+	}
 
 	if certFile == "" {
 		log.Info("armdash listening", "version", version.Version, "addr", listen, "tls", "off", "env", *envFiles)

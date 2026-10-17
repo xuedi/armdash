@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"armdash/internal/config"
+	"armdash/internal/forwarded"
 )
 
 type Mode string
@@ -33,7 +34,11 @@ const (
 // ListKey holds the link IDs, in navbar order.
 const ListKey = "links"
 
-var fields = []string{"url", "title", "mode"}
+// FramingSameOrigin lets a proxied site that forbids framing show inside the
+// dashboard, the only page on its origin that frames it.
+const FramingSameOrigin = "sameorigin"
+
+var fields = []string{"url", "title", "mode", "framing"}
 
 // Only letters and digits: the env name maps both - and _ to _, so allowing
 // either would make my-wiki and my_wiki the same variable.
@@ -46,10 +51,11 @@ func ValidID(id string) bool { return validID.MatchString(id) }
 func Fields() []string { return fields }
 
 type Link struct {
-	ID    string
-	Title string
-	URL   *url.URL
-	Mode  Mode
+	ID      string
+	Title   string
+	URL     *url.URL
+	Mode    Mode
+	Framing string
 }
 
 // Key returns the dotted config key for one of a link's fields.
@@ -120,7 +126,16 @@ func parseLink(cfg *config.Config, id string) (Link, error) {
 			config.EnvName(Key(id, "mode")), mode)
 	}
 
-	return Link{ID: id, Title: cfg.GetOr(Key(id, "title"), id), URL: u, Mode: mode}, nil
+	framing := cfg.Get(Key(id, "framing"))
+	switch {
+	case framing != "" && framing != FramingSameOrigin:
+		return Link{}, fmt.Errorf("%s: unknown value %q, want %s or nothing",
+			config.EnvName(Key(id, "framing")), framing, FramingSameOrigin)
+	case framing != "" && mode != ModeProxy:
+		return Link{}, fmt.Errorf("%s only applies to a link in proxy mode", config.EnvName(Key(id, "framing")))
+	}
+
+	return Link{ID: id, Title: cfg.GetOr(Key(id, "title"), id), URL: u, Mode: mode, Framing: framing}, nil
 }
 
 // Page is the dashboard page that frames the site.
@@ -151,8 +166,9 @@ func (l Link) Src(rest, query string) string {
 }
 
 // Handler forwards everything under Prefix to the link's URL. Only meaningful
-// for ModeProxy.
-func (l Link) Handler(log *slog.Logger) http.Handler {
+// for ModeProxy. Forwarding headers from a trusted proxy in front of armdash
+// are passed on, anybody else's are dropped.
+func (l Link) Handler(log *slog.Logger, trusted forwarded.Trusted) http.Handler {
 	target, prefix := l.URL, l.Prefix()
 	p := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
@@ -161,12 +177,19 @@ func (l Link) Handler(log *slog.Logger) http.Handler {
 			// URLs with the name the visitor used rather than the loopback address
 			// armdash reaches it on.
 			r.Out.Host = r.In.Host
+			if trusted.Proxied(r.In) {
+				r.Out.Header["X-Forwarded-For"] = r.In.Header["X-Forwarded-For"]
+			}
 			r.SetXForwarded()
+			r.Out.Header.Set("X-Forwarded-Proto", trusted.Scheme(r.In))
 			r.Out.Header.Set("X-Forwarded-Prefix", prefix)
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			if loc := rewriteLocation(resp.Header.Get("Location"), target, prefix); loc != "" {
 				resp.Header.Set("Location", loc)
+			}
+			if l.Framing == FramingSameOrigin {
+				allowSameOriginFraming(resp.Header)
 			}
 			return nil
 		},
@@ -200,4 +223,24 @@ func rewriteLocation(loc string, target *url.URL, prefix string) string {
 	u.Scheme, u.Host, u.RawPath = "", "", ""
 	u.Path = prefix + rest
 	return u.String()
+}
+
+// allowSameOriginFraming relaxes a refusal to be framed at all into a refusal
+// to be framed by another site. A proxied site shares the dashboard's origin,
+// so the dashboard's own link page is then the one page allowed to frame it.
+func allowSameOriginFraming(h http.Header) {
+	if strings.EqualFold(strings.TrimSpace(h.Get("X-Frame-Options")), "deny") {
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+	}
+	for i, policy := range h["Content-Security-Policy"] {
+		directives := strings.Split(policy, ";")
+		for j, d := range directives {
+			name, value, _ := strings.Cut(strings.TrimSpace(d), " ")
+			if strings.EqualFold(name, "frame-ancestors") && strings.EqualFold(strings.TrimSpace(value), "'none'") {
+				lead := d[:len(d)-len(strings.TrimLeft(d, " \t"))]
+				directives[j] = lead + "frame-ancestors 'self'"
+			}
+		}
+		h["Content-Security-Policy"][i] = strings.Join(directives, ";")
+	}
 }

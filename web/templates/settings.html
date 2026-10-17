@@ -49,8 +49,9 @@
   <h2 class="title is-6 mb-2">Navbar links</h2>
   <p class="help mb-3">Other sites under the navbar. <em>frame</em> loads the URL in the browser,
   <em>proxy</em> forwards <code>/x/&lt;id&gt;/</code> to it so it only has to be reachable from here,
-  <em>tab</em> opens a new tab. The id is made from the title when left empty. The arrows and
-  &times; save at once.</p>
+  <em>tab</em> opens a new tab. <em>Framing</em>, for proxy only, lets a site that refuses to be
+  framed show here anyway, while every other site stays refused. The id is made from the title
+  when left empty. The arrows and &times; save at once.</p>
   {{if .Saved}}<div class="notification is-success is-light py-2">Saved.</div>{{end}}
   {{if .Err}}<div class="notification is-danger is-light py-2">{{.Err}}</div>{{end}}
   {{if .Locked}}<p class="mb-3"><span class="tag is-light">set in {{.Locked}}</span></p>{{end}}
@@ -61,7 +62,7 @@
     <input type="hidden" name="rows" value="{{len .Rows}}">
     <div class="table-container">
     <table class="table is-fullwidth is-narrow">
-      <thead><tr><th>Id</th><th>Title</th><th>URL</th><th>Mode</th><th></th></tr></thead>
+      <thead><tr><th>Id</th><th>Title</th><th>URL</th><th>Mode</th><th>Framing</th><th></th></tr></thead>
       <tbody>
       {{$ed := .Editable}}{{$modes := .Modes}}{{$last := .LastIndex}}
       {{range .Rows}}
@@ -79,6 +80,10 @@
               {{$m := .Mode}}{{range $modes}}<option{{if eq . $m}} selected{{end}}>{{.}}</option>{{end}}
             </select>
           </div>
+        </td>
+        <td class="has-text-centered">
+          <input type="checkbox" name="framing.{{.Index}}" value="sameorigin" title="Allow framing by this page only, proxy mode"
+                 aria-label="Allow framing"{{if .Framing}} checked{{end}}{{if not $ed}} disabled{{end}}>
         </td>
         <td class="has-text-right" style="white-space: nowrap">
           {{if and $ed (not .New)}}
@@ -104,7 +109,12 @@
   <h2 class="title is-6">Login</h2>
   {{if .Saved}}<div class="notification is-success is-light py-2">Saved.</div>{{end}}
   {{if .Err}}<div class="notification is-danger is-light py-2">{{.Err}}</div>{{end}}
-  {{if .Editable}}
+  {{if .Off}}
+  <p>Off <span class="tag is-light ml-2">set by AD_CORE_AUTH_MODE</span></p>
+  <p class="help">Anyone who reaches this page can change settings, so whatever is in front of armdash
+  has to let only the owner through.{{if .User}} The stored login, {{.User}}, is kept for when the
+  login is switched back on.{{end}}</p>
+  {{else if .Editable}}
   <form method="post" action="/settings/login">
     <div class="field">
       <label class="label" for="login-user">User name</label>

@@ -167,6 +167,24 @@ takes effect on the next restart. The unit needs no change: `ProtectSystem=stric
 reading `/etc`, and `CAP_NET_BIND_SERVICE` covers port 443 as it does port 80. The Settings page
 shows which certificate and key are in use.
 
+## Behind a reverse proxy
+
+Where a proxy such as Caddy already terminates TLS for the host, armdash can sit behind it instead:
+
+```ini
+AD_CORE_ADDR=127.0.0.1:9494
+AD_CORE_TRUSTED_PROXIES=127.0.0.1,::1
+```
+
+- Bind to loopback, so the proxy is the only way in, and leave the `AD_CORE_TLS_` keys unset.
+- List the proxy in `AD_CORE_TRUSTED_PROXIES`. Without it every visitor shares the proxy's address
+  for the login limiter, the session cookie never gets `Secure`, and proxied links are told `http`.
+- Keep `Host` as the browser sent it, Caddy's default. The cross-origin check on every write
+  compares it with `Origin`.
+- If the proxy already lets only the owner through, with client certificates for instance,
+  `AD_CORE_AUTH_MODE=none` drops armdash's own login, see
+  [authentication.md](authentication.md#without-a-login).
+
 ## The other half: Prometheus
 
 armdash reads everything from Prometheus and stores nothing itself, so a deployment is really

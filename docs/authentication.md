@@ -36,6 +36,33 @@ Without a data directory and without a login nothing can be changed: writes answ
 offers an edit control, and Settings stays open and read-only, so such an install can still be
 inspected.
 
+## Without a login
+
+`AD_CORE_AUTH_MODE=none` turns the login off. It fits an install whose front door already
+authenticates: a reverse proxy that demands a client certificate, or any other proxy that lets only
+the owner through, with armdash itself listening on loopback. Whoever reaches the page is then the
+owner.
+
+- Every request may change things: settings, uploads, device positions. No session, no cookie.
+- The navbar has neither Log in nor Log out, there is no first-start form, and the settings page's
+  Login box says the login is off. `/login` leads to the start page; posting to the login, logout,
+  setup or password-change endpoints answers 404.
+- **The cross-origin protection stays** on every write. Without a login it is the only thing that
+  stops another website from posting to the settings through the owner's browser.
+- It is read from the env file or the environment only, never from the page: a page that could
+  switch its own login off would be a page anyone could open up. Any value other than `login` (the
+  default) or `none` refuses to start.
+- `none` together with `AD_CORE_AUTH_USER` or `AD_CORE_AUTH_PASSWORD_HASH` in an env file refuses
+  to start, since the two contradict each other in the same place. A login saved from the page is
+  ignored while the login is off and kept, so switching back to `login` restores it.
+- Startup logs a warning and the status box lists it, so an install is never passwordless by
+  accident.
+
+It is deliberately not tied to the trusted-proxy setting below. A loopback-only install behind any
+authenticating proxy, or a single-user LAN, are both legitimate. What it means is plain: **anything
+that can reach the listen address can change the settings**, and a proxied link's scripts, which
+share the dashboard's origin, can too.
+
 ## Changing it
 
 On the settings page, in the Login box: a new user name or a new password, and the current
@@ -75,8 +102,9 @@ A successful login gets a random 32-byte session id in a cookie:
 
 - `HttpOnly`, so no script on the page can read it
 - `SameSite=Lax`, so another site cannot send it along with a form post
-- `Secure` only when the login came over HTTPS; on a plain-HTTP LAN install a `Secure` cookie would
-  never be stored at all
+- `Secure` only when the browser is on HTTPS, served by armdash itself or, as a trusted proxy
+  reports it, by the proxy in front; on a plain-HTTP LAN install a `Secure` cookie would never be
+  stored at all
 - valid for 7 days, counted from the login
 
 The expiry is kept **on the server**, not only in the cookie, so a copied cookie stops working on
@@ -101,9 +129,27 @@ Failed attempts are counted **per client address**: 10 failures within 15 minute
 out for 15 minutes, with `429` and `Retry-After`. A successful login clears the count.
 
 There is deliberately no per-account lock. With one account it would let anyone on the network lock
-the owner out on purpose, by failing with the owner's name. And `X-Forwarded-For` is never read:
-armdash terminates TLS itself with no proxy in front, and trusting a header anyone can set would
-let a guesser pick a fresh address for every attempt.
+the owner out on purpose, by failing with the owner's name.
+
+`X-Forwarded-For` is never read unless the connection comes from a **trusted proxy**: trusting a
+header anyone can set would let a guesser pick a fresh address for every attempt. Behind a reverse
+proxy, though, every request arrives from the proxy's address, so without the setting every client
+shares one count, and ten failures from anyone lock everyone out. `AD_CORE_TRUSTED_PROXIES` lists
+the proxies, as addresses or CIDR ranges, for instance `127.0.0.1,::1`:
+
+- Only a request whose peer is on the list has its forwarding headers believed. Anyone else's are
+  ignored, as without the setting.
+- The client is the rightmost `X-Forwarded-For` entry that is not itself a trusted proxy. Each proxy
+  appends the address it saw, so the entries to its left were written by the client and prove
+  nothing. If every entry is trusted, or one cannot be parsed, the peer counts.
+- The scheme is the proxy's last `X-Forwarded-Proto`, if it says exactly `http` or `https`. It
+  decides the cookie's `Secure` flag and what proxied links are told.
+- An invalid entry, a host name for instance, refuses to start. It is read from the env file or the
+  environment only, since it decides who a client is, on the login form too.
+
+The proxy has to keep `Host` as the browser sent it, which is Caddy's default. The cross-origin
+check compares `Origin` with `Host`, and a proxy that rewrites `Host` makes every write look like it
+came from another site.
 
 ## Rejected
 

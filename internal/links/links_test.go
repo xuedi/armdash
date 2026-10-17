@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"armdash/internal/config"
+	"armdash/internal/forwarded"
 )
 
 func load(t *testing.T, env map[string]string) *config.Config {
@@ -68,6 +69,9 @@ func TestParseRejects(t *testing.T) {
 		"credentials":    {"AD_LINKS": "wiki", "AD_LINK_WIKI_URL": "http://admin:pw@127.0.0.1:8081"},
 		"unlisted link":  {"AD_LINK_WIKI_URL": "http://x"},
 		"misspelt field": {"AD_LINKS": "wiki", "AD_LINK_WIKI_URL": "http://x", "AD_LINK_WIKI_TITEL": "Wiki"},
+		"unknown framing": {"AD_LINKS": "wiki", "AD_LINK_WIKI_URL": "http://x", "AD_LINK_WIKI_MODE": "proxy",
+			"AD_LINK_WIKI_FRAMING": "any"},
+		"framing outside proxy mode": {"AD_LINKS": "wiki", "AD_LINK_WIKI_URL": "http://x", "AD_LINK_WIKI_FRAMING": "sameorigin"},
 	}
 	for name, env := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -119,7 +123,7 @@ func TestProxyTellsUpstreamTheRealURL(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "6.6.6.6")
 	req.Header.Set("X-Forwarded-Prefix", "/elsewhere")
 	rec := httptest.NewRecorder()
-	l.Handler(discard).ServeHTTP(rec, req)
+	l.Handler(discard, forwarded.Trusted{}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
@@ -145,9 +149,84 @@ func TestProxyReportsHTTPSWhenServedOverTLS(t *testing.T) {
 	l := proxyTo(t, func(w http.ResponseWriter, r *http.Request) { proto = r.Header.Get("X-Forwarded-Proto") }, "")
 	req := httptest.NewRequest(http.MethodGet, "https://homeserver/x/wiki/", nil)
 	req.TLS = &tls.ConnectionState{}
-	l.Handler(discard).ServeHTTP(httptest.NewRecorder(), req)
+	l.Handler(discard, forwarded.Trusted{}).ServeHTTP(httptest.NewRecorder(), req)
 	if proto != "https" {
 		t.Errorf("X-Forwarded-Proto = %q, want https", proto)
+	}
+}
+
+func TestProxyPassesOnATrustedProxysHeaders(t *testing.T) {
+	var hdr http.Header
+	var host string
+	l := proxyTo(t, func(w http.ResponseWriter, r *http.Request) { host, hdr = r.Host, r.Header.Clone() }, "")
+	trusted, err := forwarded.Parse("127.0.0.1,::1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(peer string) {
+		req := httptest.NewRequest(http.MethodGet, "http://admin.example/x/wiki/", nil)
+		req.RemoteAddr = peer
+		req.Header.Set("X-Forwarded-For", "203.0.113.7")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		l.Handler(discard, trusted).ServeHTTP(httptest.NewRecorder(), req)
+	}
+
+	send("127.0.0.1:40000")
+	for name, c := range map[string]struct{ got, want string }{
+		"Host":              {host, "admin.example"},
+		"X-Forwarded-Proto": {hdr.Get("X-Forwarded-Proto"), "https"},
+		"X-Forwarded-For":   {hdr.Get("X-Forwarded-For"), "203.0.113.7, 127.0.0.1"},
+	} {
+		if c.got != c.want {
+			t.Errorf("from the proxy: %s = %q, want %q", name, c.got, c.want)
+		}
+	}
+
+	send("192.168.178.20:5555")
+	for name, c := range map[string]struct{ got, want string }{
+		"Host":              {host, "admin.example"},
+		"X-Forwarded-Proto": {hdr.Get("X-Forwarded-Proto"), "http"},
+		"X-Forwarded-For":   {hdr.Get("X-Forwarded-For"), "192.168.178.20"},
+	} {
+		if c.got != c.want {
+			t.Errorf("from anyone else: %s = %q, want %q", name, c.got, c.want)
+		}
+	}
+}
+
+func TestSameOriginFraming(t *testing.T) {
+	for _, framing := range []string{"", FramingSameOrigin} {
+		l := proxyTo(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Add("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; img-src *")
+			w.Header().Add("Content-Security-Policy", "frame-ancestors 'none'")
+		}, "")
+		l.Framing = framing
+		rec := httptest.NewRecorder()
+		l.Handler(discard, forwarded.Trusted{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://homeserver/x/wiki/", nil))
+		xfo, csp := rec.Header().Get("X-Frame-Options"), rec.Header().Values("Content-Security-Policy")
+		if framing == "" {
+			if xfo != "DENY" || csp[0] != "default-src 'self'; frame-ancestors 'none'; img-src *" {
+				t.Errorf("headers changed without the setting: %q, %q", xfo, csp)
+			}
+			continue
+		}
+		if xfo != "SAMEORIGIN" {
+			t.Errorf("X-Frame-Options = %q, want SAMEORIGIN", xfo)
+		}
+		if len(csp) != 2 || csp[0] != "default-src 'self'; frame-ancestors 'self'; img-src *" || csp[1] != "frame-ancestors 'self'" {
+			t.Errorf("Content-Security-Policy = %q", csp)
+		}
+	}
+}
+
+func TestSameOriginFramingLeavesOtherRulesAlone(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Frame-Options", "ALLOW-FROM https://a.example")
+	h.Set("Content-Security-Policy", "frame-ancestors https://a.example")
+	allowSameOriginFraming(h)
+	if h.Get("X-Frame-Options") != "ALLOW-FROM https://a.example" || h.Get("Content-Security-Policy") != "frame-ancestors https://a.example" {
+		t.Errorf("changed a rule that was not a blanket refusal: %v", h)
 	}
 }
 
@@ -157,7 +236,7 @@ func TestProxyRewritesUpstreamRedirect(t *testing.T) {
 		http.Redirect(w, r, l.URL.String()+"/doku.php?id=saved", http.StatusSeeOther)
 	}, "")
 	rec := httptest.NewRecorder()
-	l.Handler(discard).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://homeserver/x/wiki/doku.php", nil))
+	l.Handler(discard, forwarded.Trusted{}).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://homeserver/x/wiki/doku.php", nil))
 	if got := rec.Header().Get("Location"); got != "/x/wiki/doku.php?id=saved" {
 		t.Errorf("Location = %q, want it under /x/wiki", got)
 	}
@@ -191,7 +270,7 @@ func TestProxyAnswersBadGatewayWhenUpstreamIsDown(t *testing.T) {
 	up.Close()
 	l := Link{ID: "wiki", Title: "Wiki", URL: u, Mode: ModeProxy}
 	rec := httptest.NewRecorder()
-	l.Handler(discard).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://homeserver/x/wiki/", nil))
+	l.Handler(discard, forwarded.Trusted{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://homeserver/x/wiki/", nil))
 	if rec.Code != http.StatusBadGateway {
 		t.Errorf("status = %d, want 502", rec.Code)
 	}

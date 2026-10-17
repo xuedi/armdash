@@ -34,9 +34,12 @@ const (
 	SourceSettings = "settings"
 )
 
-// Bootstrap keys decide where the process listens and where the settings are
-// stored, so they are read before any page exists and never from the store.
-var Bootstrap = []string{"core.addr", "core.tls_addr", "core.tls_cert", "core.tls_key", "core.data_dir"}
+// Bootstrap keys decide where the process listens, where the settings are
+// stored and who counts as the owner, so they are read before any page exists
+// and never from the store. A page that could switch its own login off would
+// be a page anyone could open up.
+var Bootstrap = []string{"core.addr", "core.tls_addr", "core.tls_cert", "core.tls_key", "core.data_dir",
+	"core.trusted_proxies", "core.auth_mode"}
 
 type value struct {
 	Value  string
@@ -126,7 +129,7 @@ func (c *Config) lookup(name string) (value, bool) {
 	if v, ok := c.user[name]; ok && v.Value != "" {
 		return v, true
 	}
-	if c.store != nil {
+	if c.store != nil && !isBootstrap(name) {
 		if v, ok := c.store.values[name]; ok && v != "" {
 			return value{Value: v, Source: SourceSettings}, true
 		}

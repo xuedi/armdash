@@ -187,6 +187,21 @@ func TestBootstrapKeysAreNotStored(t *testing.T) {
 	}
 }
 
+// A hand-edited settings.json must not switch the login off either.
+func TestBootstrapKeysAreNotReadFromTheStore(t *testing.T) {
+	path := write(t, t.TempDir(), "settings.json", `{"version":1,"values":{"AD_CORE_AUTH_MODE":"none","AD_CORE_ADDR":":1"}}`)
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.UseStore(path); err != nil {
+		t.Fatal(err)
+	}
+	if c.Has("core.auth_mode") || c.Has("core.addr") {
+		t.Error("a bootstrap key was read from settings.json")
+	}
+}
+
 func TestLockedKeyRefusesTheWholeBatch(t *testing.T) {
 	t.Setenv("AD_LINKS", "wiki")
 	c, _ := storeConfig(t)

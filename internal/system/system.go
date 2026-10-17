@@ -101,8 +101,8 @@ type System interface {
 
 type editorKey struct{}
 
-// AllowEdit marks a request as coming from the logged-in owner. Only the shell
-// calls it, after checking the session.
+// AllowEdit marks a request as coming from the owner. Only the shell calls it,
+// after checking the session, or on every request with the login off.
 func AllowEdit(r *http.Request) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), editorKey{}, true))
 }

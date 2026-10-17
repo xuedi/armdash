@@ -23,7 +23,7 @@ AD_LINK_GRAFANA_URL=http://homeserver:3000
 ```
 
 The list decides the navbar order; links follow the systems. `title` defaults to the ID and `mode`
-to `frame`. IDs are lowercase letters and digits only, because the variable name maps both `-` and
+to `frame`. A proxied link can also take `framing`, see [below](#sites-that-refuse-to-be-framed). IDs are lowercase letters and digits only, because the variable name maps both `-` and
 `_` to `_`, so `my-wiki` and `my_wiki` would otherwise be the same variable.
 
 Mistakes stop the process at startup instead of producing a link that quietly fails to appear: an
@@ -50,7 +50,7 @@ visitor, and a proxied one would sign every visitor into the upstream.
   mixed content.
 
 `proxy` avoids both, because the site then comes from the dashboard's own origin and over the
-dashboard's own TLS. It also lets the upstream listen on loopback only. The cost is that the site
+dashboard's own TLS; a site that refuses framing outright needs `framing` as well. It also lets the upstream listen on loopback only. The cost is that the site
 has to be told the path it lives under, see below.
 
 `tab` is for the rest: sites that refuse framing and cannot be put under a path prefix.
@@ -81,7 +81,7 @@ configure:
 | `Host` | `homeserver`, kept from the browser | which name to put in absolute URLs |
 | `X-Forwarded-Host` | `homeserver` | the same, for apps that read this one |
 | `X-Forwarded-Proto` | `http` or `https` | whether to build `https://` links and Secure cookies |
-| `X-Forwarded-For` | the browser's address | the real client, for logs and address rules |
+| `X-Forwarded-For` | the browser's address, or a proxy chain | the real client, for logs and address rules |
 | `X-Forwarded-Prefix` | `/x/wiki` | the path the site is mounted under |
 
 Keeping `Host` is what Caddy does by default and nginx does not. Without it the upstream sees the
@@ -89,6 +89,15 @@ loopback address it is reached on and writes that into its redirects.
 
 Forwarding headers sent by the browser are discarded rather than passed on, so a visitor cannot
 claim to be someone else or to be mounted somewhere else.
+
+Behind a reverse proxy listed in `AD_CORE_TRUSTED_PROXIES` (see
+[authentication.md](authentication.md#guessing)) two of them come from the proxy instead:
+`X-Forwarded-Proto` is the scheme the proxy reports, so an app behind TLS at the proxy is told
+`https`, and `X-Forwarded-For` is the proxy's chain with the proxy's own address appended, what any
+proxy in a chain sends. Without that, every upstream would be told `http` while the browser is on
+`https`, and an app that checks the `Origin` of its own login form, Django's CSRF check for one,
+refuses it. Requests from anyone else keep the headers above. `Host` is kept from the browser either
+way, so the proxy in front has to keep it too, which Caddy does by default.
 
 A redirect to the upstream's own address, `Location: http://127.0.0.1:8081/doku.php`, is rewritten
 to `/x/wiki/doku.php`, which is what nginx's `proxy_redirect default` does. HTML bodies are never
@@ -106,6 +115,24 @@ DokuWiki as the worked example: in the configuration manager's advanced settings
 `/x/wiki/` and leave `baseurl` empty, so the host name keeps following the `Host` header. DokuWiki's
 own rewrite rules keep working unchanged, because it still receives the paths it received before.
 
+### Sites that refuse to be framed
+
+Many admin interfaces send `X-Frame-Options: DENY` or a CSP `frame-ancestors 'none'`, and the
+browser then shows an empty frame. If the app has its own setting for it, Grafana's
+`allow_embedding` for instance, use that. Otherwise:
+
+```
+AD_LINK_BUGS_FRAMING=sameorigin
+```
+
+For a proxied link only, it relaxes the upstream's answer on the way through: `X-Frame-Options:
+DENY` becomes `SAMEORIGIN`, and a `frame-ancestors 'none'` directive becomes `frame-ancestors
+'self'`, with the rest of the policy unchanged. Anything else, an explicit list of allowed framers
+for instance, is left alone. A proxied site is on the dashboard's origin, so the dashboard's own link
+page is then the one page allowed to frame it, and every other site is still refused. The settings
+page has it as a checkbox per link; set on a link that is not proxied, it refuses to save, or to
+start.
+
 ## Security
 
 The dashboard's login does **not** cover links, proxied ones included. A proxied site is exactly
@@ -114,8 +141,8 @@ only ever forwards to the URLs in the configuration, never to anything taken fro
 it cannot be used as an open proxy.
 
 A proxied site runs on the dashboard's origin, so its scripts can read the dashboard's pages and its
-theme cookie. The dashboard is read-only and holds nothing secret, which is what makes that
-acceptable, but it is still a reason to proxy only sites you trust.
+theme cookie, and post to the settings while the owner is logged in, or always with the login off.
+That is a reason to proxy only sites you trust.
 
 A site that breaks out of frames, by navigating `window.top`, takes the whole window with it and
 the navbar is gone. Such a site belongs in `tab` mode.

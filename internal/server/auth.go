@@ -5,7 +5,6 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"html/template"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,6 +19,7 @@ import (
 const (
 	authUserKey   = "core.auth_user"
 	authHashKey   = "core.auth_password_hash"
+	authModeKey   = "core.auth_mode"
 	sessionCookie = "armdash_session"
 
 	maxFailures = 10
@@ -35,17 +35,45 @@ func (s *Server) loginPair() (user, hash string) {
 	return s.cfg.Get(authUserKey), s.cfg.Get(authHashKey)
 }
 
+// hasLogin is false with the login off, whatever is stored: the stored login
+// is kept for when it is switched back on.
 func (s *Server) hasLogin() bool {
 	u, h := s.loginPair()
-	return u != "" && h != ""
+	return !s.loginOff && u != "" && h != ""
 }
 
 // setupMode is a fresh install: no login anywhere, and somewhere to save one.
-func (s *Server) setupMode() bool { return !s.hasLogin() && s.cfg.Writable() }
+func (s *Server) setupMode() bool { return !s.loginOff && !s.hasLogin() && s.cfg.Writable() }
+
+// LoginOff reports AD_CORE_AUTH_MODE=none, for the warning at startup.
+func (s *Server) LoginOff() bool { return s.loginOff }
+
+// authMode reports whether the login is off. Anything but the two known
+// values refuses to start: a typo must not decide whether there is a login.
+func authMode(cfg *config.Config) (off bool, err error) {
+	switch m := cfg.Get(authModeKey); m {
+	case "", "login":
+		return false, nil
+	case "none":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s: unknown mode %q, want login or none", config.EnvName(authModeKey), m)
+	}
+}
 
 // checkLogin stops startup on half a login or a damaged hash, rather than
-// quietly refusing every attempt later.
-func checkLogin(cfg *config.Config) error {
+// quietly refusing every attempt later. With the login off, a login in an env
+// file contradicts it in the same place; one stored from the page is ignored.
+func checkLogin(cfg *config.Config, off bool) error {
+	if off {
+		for _, k := range []string{authUserKey, authHashKey} {
+			if src := cfg.Locked(k); src != "" {
+				return fmt.Errorf("%s=none turns the login off, but %s is set in %s: remove one of them",
+					config.EnvName(authModeKey), config.EnvName(k), src)
+			}
+		}
+		return nil
+	}
 	user, hash := cfg.Get(authUserKey), cfg.Get(authHashKey)
 	if user == "" && hash == "" {
 		return nil
@@ -61,8 +89,12 @@ func checkLogin(cfg *config.Config) error {
 }
 
 // withSession marks the request for system.CanEdit when it carries a live
-// session. Every request passes through here, pages and API alike.
+// session, or always with the login off. Every request passes through here,
+// pages and API alike.
 func (s *Server) withSession(r *http.Request) *http.Request {
+	if s.loginOff {
+		return system.AllowEdit(r)
+	}
 	if !s.hasLogin() {
 		return r
 	}
@@ -118,16 +150,10 @@ func localPath(next string) string {
 	return next
 }
 
-// clientAddr is the peer address. X-Forwarded-For is never read: armdash
-// terminates TLS itself, and a header anyone can set would let a guesser pick
-// a fresh address for every attempt.
-func clientAddr(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
+// clientAddr is the peer address, or behind a trusted proxy the client it
+// names. X-Forwarded-For from anybody else is never read: a header anyone can
+// set would let a guesser pick a fresh address for every attempt.
+func (s *Server) clientAddr(r *http.Request) string { return s.trusted.Client(r) }
 
 type loginData struct {
 	Configured, Setup bool
@@ -165,7 +191,7 @@ func (t *tree) handleLogin(w http.ResponseWriter, r *http.Request) {
 		t.renderLogin(w, r, http.StatusForbidden, loginData{})
 		return
 	}
-	addr := clientAddr(r)
+	addr := t.clientAddr(r)
 	d := loginData{Next: localPath(r.PostFormValue("next")), User: r.PostFormValue("user")}
 	if ok, wait := t.limiter.Allowed(addr); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
@@ -208,8 +234,9 @@ func (t *tree) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// setSession marks the cookie Secure only when the request came over TLS: on
-// a plain-HTTP LAN install a Secure cookie would never be stored at all.
+// setSession marks the cookie Secure only when the browser is on HTTPS, here
+// or at a trusted proxy: on a plain-HTTP LAN install a Secure cookie would
+// never be stored at all.
 func (s *Server) setSession(w http.ResponseWriter, r *http.Request, id string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
@@ -217,7 +244,7 @@ func (s *Server) setSession(w http.ResponseWriter, r *http.Request, id string, m
 		Path:     "/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   s.trusted.Scheme(r) == "https",
 		SameSite: http.SameSiteLaxMode,
 	})
 }

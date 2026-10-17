@@ -53,9 +53,9 @@ type settingsSection struct {
 }
 
 type settingsLinkRow struct {
-	Index                int
-	ID, Title, URL, Mode string
-	New                  bool
+	Index                         int
+	ID, Title, URL, Mode, Framing string
+	New                           bool
 }
 
 type settingsLinks struct {
@@ -70,6 +70,7 @@ type settingsLinks struct {
 
 type settingsLogin struct {
 	User, Locked string
+	Off          bool
 	Editable     bool
 	Saved        bool
 	Err          string
@@ -190,7 +191,7 @@ func (t *tree) settingsData(st saveState) settingsData {
 	}
 
 	user, _ := t.loginPair()
-	d.Login = settingsLogin{User: user, Saved: st.Saved == "login"}
+	d.Login = settingsLogin{User: user, Off: t.loginOff, Saved: st.Saved == "login"}
 	if l := t.cfg.Locked(authHashKey); l != "" {
 		d.Login.Locked = l
 	} else if l := t.cfg.Locked(authUserKey); l != "" {
@@ -228,7 +229,7 @@ func (t *tree) settingsData(st saveState) settingsData {
 	}
 	for i, l := range t.links {
 		d.Links.Rows = append(d.Links.Rows, settingsLinkRow{Index: i, ID: l.ID, Title: l.Title,
-			URL: l.URL.String(), Mode: string(l.Mode)})
+			URL: l.URL.String(), Mode: string(l.Mode), Framing: l.Framing})
 	}
 	if st.Section == "links" && st.Posted != nil {
 		d.Links.Rows = postedLinkRows(st.Posted)
@@ -245,6 +246,10 @@ func (t *tree) settingsData(st saveState) settingsData {
 		t.info(tlsCertKey, "TLS certificate", "HTTPS is off", ""),
 		t.info(tlsKeyKey, "TLS key", "HTTPS is off", ""),
 		t.info(dataDirKey, "Data directory", t.dataDirUnset(), "Settings saved here, uploaded floor plans and device positions."),
+		t.info(trustedProxiesKey, "Trusted proxies", "Off: forwarding headers are ignored",
+			"Addresses whose X-Forwarded-For and X-Forwarded-Proto are believed, for a reverse proxy in front."),
+		t.info(authModeKey, "Login", "login",
+			"none turns the login off, for a proxy in front that already lets only the owner through."),
 		{Label: "Env files", Value: strings.Join(t.files, ", "), Set: len(t.files) > 0,
 			Help: "Read at startup, later ones win, the environment wins over all. A value set there locks its field here."},
 	}
@@ -363,7 +368,7 @@ func (s *Server) saveScoped(prefix string) func(map[string]string) error {
 // editor refuses a settings form from anyone but the logged-in owner.
 func (t *tree) editor(w http.ResponseWriter, r *http.Request) bool {
 	switch {
-	case !t.hasLogin():
+	case !t.loginOff && !t.hasLogin():
 		t.refuse(w, r, http.StatusForbidden, "Editing is off", "No login exists yet.")
 		return false
 	case !system.CanEdit(r):
@@ -509,7 +514,7 @@ func postedLinkRows(form url.Values) []settingsLinkRow {
 	for i := 0; i < n && i < 100; i++ {
 		get := func(f string) string { return strings.TrimSpace(form.Get(f + "." + strconv.Itoa(i))) }
 		rows = append(rows, settingsLinkRow{Index: i, ID: strings.ToLower(get("id")), Title: get("title"),
-			URL: get("url"), Mode: get("mode"), New: get("new") == "1"})
+			URL: get("url"), Mode: get("mode"), Framing: get("framing"), New: get("new") == "1"})
 	}
 	return rows
 }
@@ -591,6 +596,7 @@ func (t *tree) handleSaveLinks(w http.ResponseWriter, r *http.Request) {
 		changes[links.Key(id, "url")] = row.URL
 		changes[links.Key(id, "title")] = title
 		changes[links.Key(id, "mode")] = mode
+		changes[links.Key(id, "framing")] = row.Framing
 	}
 	for _, l := range t.links {
 		if !seen[l.ID] {
@@ -647,7 +653,7 @@ func (t *tree) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.setSession(w, r, id, int(auth.SessionTTL.Seconds()))
-	t.log.Info("login created", "user", user, "addr", clientAddr(r))
+	t.log.Info("login created", "user", user, "addr", t.clientAddr(r))
 	http.Redirect(w, r, "/settings?saved=setup", http.StatusSeeOther)
 }
 
@@ -662,7 +668,7 @@ func (t *tree) handleChangeLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = r.ParseForm()
-	addr := clientAddr(r)
+	addr := t.clientAddr(r)
 	if ok, _ := t.limiter.Allowed(addr); !ok {
 		t.failed(w, r, "login", "Too many wrong passwords. Try again later.", nil)
 		return
@@ -760,6 +766,9 @@ func (t *tree) coreStatus(ctx context.Context) []system.Check {
 	var out []system.Check
 	user, _ := t.loginPair()
 	switch {
+	case t.loginOff:
+		out = append(out, system.Check{Title: "Login", Level: "ok",
+			Detail: "Off, set by " + config.EnvName(authModeKey) + ". Anyone who reaches this page can change settings."})
 	case user == "":
 		out = append(out, system.Check{Title: "Login", Level: "warning",
 			Detail: "None, and no data directory to save one in. Anyone can read this page."})

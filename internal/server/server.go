@@ -21,6 +21,7 @@ import (
 
 	"armdash/internal/auth"
 	"armdash/internal/config"
+	"armdash/internal/forwarded"
 	"armdash/internal/links"
 	"armdash/internal/system"
 	"armdash/internal/version"
@@ -28,8 +29,9 @@ import (
 )
 
 const (
-	prometheusURLKey = "core.prometheus_url"
-	dataDirKey       = "core.data_dir"
+	prometheusURLKey  = "core.prometheus_url"
+	dataDirKey        = "core.data_dir"
+	trustedProxiesKey = "core.trusted_proxies"
 )
 
 // themeCookie holds a light/dark override, or is absent to follow the browser.
@@ -65,6 +67,10 @@ type Server struct {
 	sessions *auth.Sessions
 	limiter  *auth.Limiter
 	xorigin  *http.CrossOriginProtection
+	trusted  forwarded.Trusted
+	// loginOff is AD_CORE_AUTH_MODE=none: whoever reaches the page is the
+	// owner, because something in front of armdash already checked.
+	loginOff bool
 
 	// saveMu serialises saving, so two forms submitted at once cannot each
 	// build a tree from half of the other's values.
@@ -90,17 +96,28 @@ func New(cfg *config.Config, log *slog.Logger, files []string) (*Server, error) 
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
-	if err := checkLogin(cfg); err != nil {
+	loginOff, err := authMode(cfg)
+	if err != nil {
 		return nil, err
+	}
+	if err := checkLogin(cfg, loginOff); err != nil {
+		return nil, err
+	}
+	trusted, err := forwarded.Parse(cfg.Get(trustedProxiesKey))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", config.EnvName(trustedProxiesKey), err)
 	}
 	s := &Server{cfg: cfg, log: log, tmpl: tmpl, files: files,
 		sessions: auth.NewSessions(auth.SessionTTL),
 		limiter:  auth.NewLimiter(maxFailures, failWindow, lockFor),
-		xorigin:  http.NewCrossOriginProtection()}
+		xorigin:  http.NewCrossOriginProtection(),
+		trusted:  trusted,
+		loginOff: loginOff}
 	if err := s.rebuild(); err != nil {
 		return nil, err
 	}
 	switch {
+	case loginOff:
 	case s.setupMode():
 		log.Info("no login yet, open /settings to create one")
 	case !s.hasLogin():
@@ -149,18 +166,28 @@ func (t *tree) routes() {
 	t.mux.HandleFunc("GET /{$}", t.handleRoot)
 	t.mux.HandleFunc("GET /settings", t.handleSettings)
 	t.mux.HandleFunc("GET /settings/status", t.handleStatus)
-	for _, route := range []struct {
+	type route struct {
 		path string
 		h    http.HandlerFunc
-	}{
+	}
+	login := []route{
 		{"POST /settings/setup", t.handleSetup},
 		{"POST /settings/login", t.handleChangeLogin},
-		{"POST /settings/core", t.handleSaveCore},
-		{"POST /settings/system/{id}", t.handleSaveSystem},
-		{"POST /settings/links", t.handleSaveLinks},
 		{"POST /login", t.handleLogin},
 		{"POST /logout", t.handleLogout},
-	} {
+	}
+	// Registered as 404 rather than left out, which would answer 405 because
+	// GET /login exists.
+	if s.loginOff {
+		for i := range login {
+			login[i].h = http.NotFound
+		}
+	}
+	for _, route := range append(login,
+		route{"POST /settings/core", t.handleSaveCore},
+		route{"POST /settings/system/{id}", t.handleSaveSystem},
+		route{"POST /settings/links", t.handleSaveLinks},
+	) {
 		t.mux.Handle(route.path, s.xorigin.Handler(route.h))
 	}
 	t.mux.HandleFunc("GET /login", t.handleLoginPage)
@@ -172,7 +199,7 @@ func (t *tree) routes() {
 	// Every method, not only GET: saving a wiki page is a POST.
 	for _, l := range t.links {
 		if l.Mode == links.ModeProxy {
-			t.mux.Handle(l.Prefix()+"/", l.Handler(s.log.With("link", l.ID)))
+			t.mux.Handle(l.Prefix()+"/", l.Handler(s.log.With("link", l.ID), s.trusted))
 		}
 	}
 
@@ -199,12 +226,13 @@ func (t *tree) routes() {
 // system, so a new write endpoint is covered without anyone having to remember
 // it: a write needs a session, and it has to come from this site. A request
 // with neither Sec-Fetch-Site nor Origin, curl for instance, is not a browser
-// being tricked and passes the second check, never the first.
+// being tricked and passes the second check, never the first. With the login
+// off only the second is left, so it stays outside the edit mark.
 func (s *Server) api(id string, h http.Handler) http.Handler {
 	protected := s.xorigin.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case safeMethod(r.Method):
-		case !s.hasLogin():
+		case !s.loginOff && !s.hasLogin():
 			s.refuse(w, r, http.StatusForbidden, "Editing is off",
 				"No login exists yet, create one on the settings page.")
 			return
@@ -386,7 +414,7 @@ func (t *tree) layout(r *http.Request, active system.System, slug string) layout
 		Version:  version.Version,
 		Theme:    theme(r),
 		Login:    t.hasLogin(),
-		LoggedIn: system.CanEdit(r),
+		LoggedIn: t.hasLogin() && system.CanEdit(r),
 		Here:     r.URL.RequestURI(),
 	}
 	for _, sys := range t.enabled() {

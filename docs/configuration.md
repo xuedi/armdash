@@ -9,11 +9,14 @@ page, which then shows that field locked.
 
 | Tier | Keys | Where |
 |---|---|---|
-| Bootstrap | `core.addr`, `core.tls_addr`, `core.tls_cert`, `core.tls_key`, `core.data_dir` | env file or environment only, a change needs a restart |
+| Bootstrap | `core.addr`, `core.tls_addr`, `core.tls_cert`, `core.tls_key`, `core.data_dir`, `core.trusted_proxies`, `core.auth_mode` | env file or environment only, a change needs a restart |
 | Everything else | Prometheus URL, the login, which systems are shown, every system's own fields, navbar links | the settings page, or an env file |
 
 The bootstrap keys are needed before a page can be served: which address to listen on, whether
-HTTPS is on, and where `settings.json` is. The page shows them read-only in its Server box.
+HTTPS is on, where `settings.json` is, which reverse proxies to believe about the client, and
+whether there is a login at all. The last two decide who may change settings, so a page that could
+change them could open itself up. The page shows them read-only in its Server box, and a bootstrap
+key found in `settings.json` is ignored.
 
 ## Sources
 
@@ -84,7 +87,8 @@ with the real password.
 
 `AD_CORE_AUTH_USER` and `AD_CORE_AUTH_PASSWORD_HASH`, stored like any other setting. On a fresh
 install with a data directory there is none, and every page leads to the setup form on `/settings`.
-Details in [authentication.md](authentication.md).
+`AD_CORE_AUTH_MODE=none` turns the login off for an install whose reverse proxy already lets only
+the owner through. Details in [authentication.md](authentication.md).
 
 ## Data next to the settings
 
